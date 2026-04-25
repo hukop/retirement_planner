@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -51,10 +51,7 @@ class IncomeSource:
 # ---------------------------------------------------------------------------
 EXPENSE_CATEGORIES = [
     "housing",
-    "food",
-    "transportation",
     "healthcare",
-    "discretionary",
     "other",
 ]
 
@@ -64,7 +61,7 @@ class Expense:
     """A recurring expense category."""
 
     name: str = ""
-    annual_amount: float = 0.0
+    monthly_amount: float = 0.0
     category: str = "other"
     retirement_pct: float = 100.0     # % of this expense that continues in retirement
     inflation_adjusted: bool = True
@@ -112,6 +109,7 @@ class InvestmentAccount:
     name: str = ""
     account_type: str = "brokerage"
     balance: float = 0.0
+    cost_basis: Optional[float] = None  # If None, engine assumes 50% of starting balance
     annual_contribution: float = 0.0
     employer_match: float = 0.0       # annual employer match (401k only)
     annual_return_pct: float = 7.0    # nominal expected annual return
@@ -298,12 +296,12 @@ class PlanProfile:
                 IncomeSource(name="Spouse Salary", annual_amount=120_000, annual_raise_pct=2.5, owner="spouse"),
             ],
             expenses=[
-                Expense(name="Housing", annual_amount=36_000, category="housing", retirement_pct=80),
-                Expense(name="Food & Dining", annual_amount=12_000, category="food", retirement_pct=100),
-                Expense(name="Transportation", annual_amount=8_000, category="transportation", retirement_pct=70),
-                Expense(name="Healthcare", annual_amount=6_000, category="healthcare", retirement_pct=150),
-                Expense(name="Discretionary", annual_amount=18_000, category="discretionary", retirement_pct=120),
-                Expense(name="Other", annual_amount=5_000, category="other", retirement_pct=90),
+                Expense(name="Housing", monthly_amount=3_000, category="housing", retirement_pct=80),
+                Expense(name="Healthcare", monthly_amount=500, category="healthcare", retirement_pct=150),
+                Expense(name="Other Expenses", monthly_amount=3_583, category="other", retirement_pct=100),
+            ],
+            one_time_expenses=[
+                OneTimeExpense(name="Kitchen Remodel", amount=50_000, year=2028, inflation_adjusted=True),
             ],
             accounts=[
                 InvestmentAccount(name="401(k)", account_type="401k", balance=500_000,
@@ -316,7 +314,7 @@ class PlanProfile:
                                   annual_contribution=7_000, annual_return_pct=7.0, owner="self"),
                 InvestmentAccount(name="Spouse Roth IRA", account_type="roth_ira", balance=80_000,
                                   annual_contribution=7_000, annual_return_pct=7.0, owner="spouse"),
-                InvestmentAccount(name="Brokerage", account_type="brokerage", balance=200_000,
+                InvestmentAccount(name="Brokerage", account_type="brokerage", balance=200_000, cost_basis=150_000,
                                   annual_contribution=24_000, annual_return_pct=7.0, owner="self"),
                 InvestmentAccount(name="HSA", account_type="hsa", balance=30_000,
                                   annual_contribution=8_300, annual_return_pct=7.0, owner="self"),

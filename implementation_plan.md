@@ -128,6 +128,7 @@ class InvestmentAccount:
     name: str
     account_type: str                  # "401k", "trad_ira", "roth_ira", "brokerage", "hsa", "savings"
     balance: float
+    cost_basis: float = 0              # Dynamic tracking of principal for calculating exact taxable gains
     annual_contribution: float = 0
     employer_match: float = 0          # annual employer match amount
     annual_return_pct: float = 7.0
@@ -177,7 +178,7 @@ class PlanProfile:
 - Inputs: taxable income by source type → outputs: total federal + state tax
 - Handle tax-deferred withdrawals as ordinary income
 - Handle Roth withdrawals as tax-free
-- Handle brokerage withdrawals with cost-basis assumptions
+- Precise taxable brokerage withdrawals: Compute exact capital gains using dynamic proportional cost-basis tracking (CA taxes fully as ordinary income, Fed uses LTCG brackets)
 
 #### [NEW] engine/investments.py
 
@@ -185,7 +186,7 @@ class PlanProfile:
 - Add contributions during working years
 - Add employer match for 401k
 - Stop contributions at retirement
-- Track cost basis for brokerage (simplified: assume basis = 50% of balance at retirement)
+- Dynamic Cost-Basis Tracking: Track cumulative principal vs growth. New contributions continuously add to the basis pool, while withdrawals deplete proportional basis and record exact capital gains. (Fallback: if starting cost basis is unknown, engine assumes 50% of starting balance).
 - Support different return rates per account
 
 #### [NEW] engine/real_estate.py
@@ -345,6 +346,21 @@ from ui.callbacks import profile_cb, income_cb, expenses_cb, investments_cb, rea
 if __name__ == "__main__":
     app.run(debug=True, port=8050)
 ```
+
+---
+
+## Advanced Features (Post-MVP)
+
+The following advanced features are planned for implementation after the core MVP is successfully working:
+
+- **Monte Carlo Simulations & Sequence Risk**: Simulating 1,000+ randomized historical market return sequences to output a "Probability of Success" percentage, testing against market crashes early in retirement.
+- **Roth Conversions Strategy Module**: Modeling whether shifting pre-tax money to a Roth account during low-income "gap years" (before Social Security/RMDs) will reduce lifetime tax burden.
+- **Medicare Premiums & IRMAA**: Automatically calculating Income-Related Monthly Adjustment Amount (IRMAA) surcharges if RMDs or capital gains push taxable income over federal thresholds.
+- **Sector-Specific Inflation**: Allowing customizable, separate inflation rates for specific categories (e.g., setting Healthcare inflation permanently higher than baseline CPI).
+- **Long-Term Care (LTC) Shocks**: Modeling sudden, heavy healthcare expense spikes (e.g., $100k+ per year) for nursing home or assisted living care at the end of the lifespan projection.
+- **Windfalls and Inheritance**: Projecting large, one-time lump sum cash injections received at a specific future date.
+- **Tax Bracket Sunsets**: Customizing brackets for future years to simulate the expiration of current tax laws or targeted tax hikes.
+- **Advanced HSA Modeling**: Upgrading the HSA to use triple-tax-advantage specifically optimized against tracked medical expenses.
 
 ---
 
