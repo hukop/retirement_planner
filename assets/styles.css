@@ -1,0 +1,750 @@
+/* =========================================================================
+   Retirement Planner — Global Design System
+   Dark theme · Inter font · Glassmorphism cards · Smooth micro-animations
+   ========================================================================= */
+
+/* ----- Google Fonts are loaded via app.py external_stylesheets ----- */
+
+/* =========================================================================
+   1. CSS Custom Properties (Design Tokens)
+   ========================================================================= */
+:root {
+  /* Backgrounds */
+  --bg-base:        #0b0e1a;
+  --bg-surface:     #111827;
+  --bg-card:        #161d2e;
+  --bg-card-hover:  #1c2540;
+  --bg-input:       #0f1623;
+  --bg-sidebar:     #0d1220;
+
+  /* Accent Colors */
+  --accent-blue:    #4a7af7;
+  --accent-blue-dim:#3562d4;
+  --accent-green:   #34d399;
+  --accent-red:     #f87171;
+  --accent-amber:   #fbbf24;
+  --accent-purple:  #a78bfa;
+  --accent-teal:    #2dd4bf;
+
+  /* Text */
+  --text-primary:   #f0f4ff;
+  --text-secondary: #94a3b8;
+  --text-muted:     #4b5b73;
+  --text-accent:    #4a7af7;
+
+  /* Borders */
+  --border-subtle:  rgba(148, 163, 184, 0.08);
+  --border-card:    rgba(74, 122, 247, 0.15);
+  --border-focus:   rgba(74, 122, 247, 0.6);
+  --border-input:   rgba(148, 163, 184, 0.15);
+
+  /* Shadows */
+  --shadow-card:    0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-glow:    0 0 20px rgba(74, 122, 247, 0.15);
+  --shadow-input:   0 2px 8px rgba(0, 0, 0, 0.3);
+
+  /* Gradients */
+  --grad-blue:      linear-gradient(135deg, #4a7af7 0%, #2952d4 100%);
+  --grad-green:     linear-gradient(135deg, #34d399 0%, #059669 100%);
+  --grad-red:       linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+  --grad-amber:     linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+  --grad-purple:    linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+  --grad-header:    linear-gradient(180deg, #0d1220 0%, #0b0e1a 100%);
+  --grad-sidebar:   linear-gradient(180deg, #0d1220 0%, #080c18 100%);
+
+  /* Typography */
+  --font-main:      "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:      "JetBrains Mono", "Fira Code", "Courier New", monospace;
+
+  /* Spacing */
+  --radius-sm:      6px;
+  --radius-md:      10px;
+  --radius-lg:      16px;
+  --radius-xl:      22px;
+
+  /* Transitions */
+  --transition-fast:  0.15s ease;
+  --transition-base:  0.25s ease;
+  --transition-slow:  0.4s ease;
+
+  /* Sidebar */
+  --sidebar-width:    240px;
+}
+
+/* =========================================================================
+   2. Reset & Base
+   ========================================================================= */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg-base) !important;
+  font-family: var(--font-main) !important;
+  color: var(--text-primary) !important;
+  line-height: 1.6;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* Override Bootstrap DARKLY defaults that conflict */
+.bg-dark     { background-color: var(--bg-surface) !important; }
+.text-muted  { color: var(--text-secondary) !important; }
+
+/* =========================================================================
+   3. Layout — App Shell
+   ========================================================================= */
+#app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── Sidebar ── */
+#sidebar {
+  width: var(--sidebar-width);
+  min-height: 100vh;
+  background: var(--grad-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  padding: 0;
+  overflow: hidden;
+}
+
+#sidebar-header {
+  padding: 24px 20px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+#sidebar-logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#sidebar-logo .logo-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--grad-blue);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+#sidebar-nav {
+  flex: 1;
+  padding: 12px 10px;
+  overflow-y: auto;
+}
+
+/* ── Main content area ── */
+#main-content {
+  margin-left: var(--sidebar-width);
+  flex: 1;
+  min-height: 100vh;
+  background: var(--bg-base);
+}
+
+#topbar {
+  height: 56px;
+  background: linear-gradient(180deg, var(--bg-surface) 0%, transparent 100%);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+#page-content {
+  padding: 28px;
+  max-width: 1400px;
+}
+
+/* =========================================================================
+   4. Navigation Items
+   ========================================================================= */
+.nav-item-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-decoration: none !important;
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: background var(--transition-fast), color var(--transition-fast),
+              transform var(--transition-fast);
+  cursor: pointer;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.nav-item-link:hover {
+  background: rgba(74, 122, 247, 0.1);
+  color: var(--text-primary);
+  transform: translateX(2px);
+  border-color: var(--border-card);
+}
+
+.nav-item-link.active {
+  background: rgba(74, 122, 247, 0.15);
+  color: var(--accent-blue);
+  border-color: var(--border-card);
+  box-shadow: inset 2px 0 0 var(--accent-blue);
+}
+
+.nav-item-link .nav-icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 12px 12px 4px;
+}
+
+/* =========================================================================
+   5. Cards
+   ========================================================================= */
+
+/* ── Generic section card ── */
+.section-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-card);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.section-card:hover {
+  border-color: var(--border-card);
+  box-shadow: var(--shadow-card), var(--shadow-glow);
+}
+
+.section-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-card-title .card-icon {
+  font-size: 16px;
+}
+
+/* ── Metric card ── */
+.metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px 20px;
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--transition-base), border-color var(--transition-base),
+              box-shadow var(--transition-base);
+  cursor: default;
+}
+
+.metric-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  transition: opacity var(--transition-base);
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-card);
+  box-shadow: var(--shadow-card), var(--shadow-glow);
+}
+
+.metric-card.accent-blue::before  { background: var(--grad-blue); }
+.metric-card.accent-green::before { background: var(--grad-green); }
+.metric-card.accent-amber::before { background: var(--grad-amber); }
+.metric-card.accent-purple::before{ background: var(--grad-purple); }
+
+.metric-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.metric-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.8px;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+.metric-card-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 0;
+}
+
+.metric-card-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 99px;
+  margin-left: 8px;
+}
+
+.metric-card-trend.up {
+  color: var(--accent-green);
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.metric-card-trend.down {
+  color: var(--accent-red);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.metric-card-icon {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  font-size: 28px;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+/* =========================================================================
+   6. Form Inputs
+   ========================================================================= */
+.input-row {
+  margin-bottom: 16px;
+}
+
+.input-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.input-label .help-icon {
+  color: var(--text-muted);
+  cursor: help;
+  font-size: 11px;
+  border: 1px solid var(--text-muted);
+  border-radius: 50%;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.input-label .help-icon:hover {
+  color: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+/* Override DBC / Bootstrap input styles */
+.form-control,
+.dash-input,
+input.form-control,
+input[type="number"],
+input[type="text"] {
+  background: var(--bg-input) !important;
+  border: 1px solid var(--border-input) !important;
+  color: var(--text-primary) !important;
+  border-radius: var(--radius-sm) !important;
+  font-family: var(--font-main) !important;
+  font-size: 13.5px !important;
+  padding: 8px 12px !important;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: var(--shadow-input) !important;
+}
+
+.form-control:focus,
+.dash-input:focus,
+input:focus {
+  border-color: var(--border-focus) !important;
+  box-shadow: 0 0 0 3px rgba(74, 122, 247, 0.12) !important;
+  outline: none !important;
+  background: var(--bg-input) !important;
+  color: var(--text-primary) !important;
+}
+
+.form-control:hover {
+  border-color: var(--border-card) !important;
+}
+
+/* Select / Dropdown */
+.Select-control,
+.Select-menu-outer,
+.Select--single > .Select-control,
+.VirtualizedSelectOption {
+  background: var(--bg-input) !important;
+  border-color: var(--border-input) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-main) !important;
+}
+
+.Select-option.is-focused {
+  background: rgba(74, 122, 247, 0.15) !important;
+}
+
+.Select-value-label {
+  color: var(--text-primary) !important;
+}
+
+/* Sliders */
+.rc-slider-track {
+  background: var(--grad-blue) !important;
+}
+
+.rc-slider-handle {
+  border-color: var(--accent-blue) !important;
+  background: var(--accent-blue) !important;
+  box-shadow: 0 0 0 4px rgba(74, 122, 247, 0.2) !important;
+}
+
+.rc-slider-rail {
+  background: var(--border-input) !important;
+}
+
+/* =========================================================================
+   7. Buttons
+   ========================================================================= */
+.btn-primary-custom {
+  background: var(--grad-blue);
+  border: none;
+  color: #fff;
+  font-family: var(--font-main);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 9px 20px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: opacity var(--transition-fast), transform var(--transition-fast),
+              box-shadow var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  letter-spacing: 0.2px;
+}
+
+.btn-primary-custom:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(74, 122, 247, 0.4);
+}
+
+.btn-primary-custom:active {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border-input);
+  color: var(--text-secondary);
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast),
+              background var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-ghost:hover {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  background: rgba(74, 122, 247, 0.06);
+}
+
+.btn-danger-ghost {
+  background: transparent;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: var(--accent-red);
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-danger-ghost:hover {
+  background: rgba(248, 113, 113, 0.1);
+  border-color: var(--accent-red);
+}
+
+/* DBC Button overrides */
+.btn.btn-outline-primary {
+  border-color: var(--accent-blue) !important;
+  color: var(--accent-blue) !important;
+}
+
+.btn.btn-outline-primary:hover {
+  background-color: var(--accent-blue) !important;
+  color: #fff !important;
+}
+
+/* =========================================================================
+   8. Dynamic Item List (add/remove pattern)
+   ========================================================================= */
+.dynamic-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 18px 18px 14px;
+  margin-bottom: 12px;
+  position: relative;
+  transition: border-color var(--transition-fast);
+  animation: slideDown 0.2s ease;
+}
+
+.dynamic-item:hover {
+  border-color: var(--border-card);
+}
+
+.dynamic-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.dynamic-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.add-item-btn-row {
+  margin-top: 4px;
+}
+
+/* =========================================================================
+   9. Page Headers
+   ========================================================================= */
+.page-header {
+  margin-bottom: 28px;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.4px;
+  margin-bottom: 4px;
+}
+
+.page-subtitle {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  margin-bottom: 0;
+}
+
+/* =========================================================================
+   10. Plotly Chart Theming
+   ========================================================================= */
+.js-plotly-plot .plotly {
+  background: transparent !important;
+}
+
+.plot-container {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 8px;
+}
+
+/* Range slider bar (Plotly) */
+.rangeslider-handle {
+  fill: var(--accent-blue) !important;
+}
+
+/* =========================================================================
+   11. Tabs
+   ========================================================================= */
+.dash-tab {
+  color: var(--text-secondary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  font-family: var(--font-main) !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  padding: 10px 18px !important;
+  transition: color var(--transition-fast) !important;
+}
+
+.dash-tab--selected {
+  color: var(--accent-blue) !important;
+  background: var(--bg-card) !important;
+  border-bottom: 2px solid var(--accent-blue) !important;
+  font-weight: 600 !important;
+}
+
+/* =========================================================================
+   12. Badges & Tags
+   ========================================================================= */
+.badge-blue   { background: rgba(74, 122, 247, 0.15); color: var(--accent-blue);   }
+.badge-green  { background: rgba(52, 211, 153, 0.15); color: var(--accent-green);  }
+.badge-red    { background: rgba(248, 113, 113, 0.15);color: var(--accent-red);    }
+.badge-amber  { background: rgba(251, 191, 36, 0.15); color: var(--accent-amber);  }
+.badge-purple { background: rgba(167, 139, 250, 0.18);color: var(--accent-purple); }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+/* =========================================================================
+   13. Tooltip overrides (DBC Tooltip)
+   ========================================================================= */
+.tooltip-inner {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-card) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-main) !important;
+  font-size: 12px !important;
+  max-width: 240px !important;
+  text-align: left !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.tooltip.bs-tooltip-top .arrow::before   { border-top-color:    var(--border-card) !important; }
+.tooltip.bs-tooltip-bottom .arrow::before{ border-bottom-color: var(--border-card) !important; }
+
+/* =========================================================================
+   14. Scrollbars (Webkit)
+   ========================================================================= */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: var(--bg-surface); }
+::-webkit-scrollbar-thumb  { background: var(--border-input); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* =========================================================================
+   15. Utility classes
+   ========================================================================= */
+.text-positive { color: var(--accent-green) !important; }
+.text-negative { color: var(--accent-red)   !important; }
+.text-neutral  { color: var(--text-secondary) !important; }
+.text-accent   { color: var(--accent-blue)  !important; }
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 20px 0;
+}
+
+.mono { font-family: var(--font-mono); }
+
+/* ── Loading spinner ── */
+.loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-input);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Pulse animation (for live indicators) ── */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.pulse { animation: pulse 2s ease-in-out infinite; }
+
+/* =========================================================================
+   16. Responsive
+   ========================================================================= */
+@media (max-width: 992px) {
+  :root { --sidebar-width: 200px; }
+  .metric-card-value { font-size: 22px; }
+}
+
+@media (max-width: 768px) {
+  #sidebar {
+    transform: translateX(-100%);
+    transition: transform var(--transition-base);
+  }
+  #sidebar.open { transform: translateX(0); }
+  #main-content { margin-left: 0; }
+  #page-content { padding: 16px; }
+  .metric-card-value { font-size: 20px; }
+}
