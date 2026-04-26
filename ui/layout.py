@@ -242,6 +242,8 @@ def register_routing_callback(app: dash.Dash) -> None:
     def render_page(pathname: str, profile_data: dict, projection_data: dict):
         from ui.pages.dashboard   import layout as dashboard_layout
         from ui.pages.profile     import layout as profile_layout
+        from ui.pages.income      import layout as income_layout
+        from ui.pages.expenses    import layout as expenses_layout
 
         page_key = _ROUTES.get(pathname or "/", "dashboard")
         title    = _PAGE_TITLES.get(page_key, "")
@@ -250,8 +252,12 @@ def register_routing_callback(app: dash.Dash) -> None:
             return dashboard_layout(profile_data, projection_data), title
         elif page_key == "profile":
             return profile_layout(profile_data), title
+        elif page_key == "income":
+            return income_layout(profile_data), title
+        elif page_key == "expenses":
+            return expenses_layout(profile_data), title
         else:
-            # Placeholder for phases 10-12
+            # Placeholder for phases 11-12
             return _placeholder_page(page_key), title
 
     # ── Nav active-link highlighting ────────────────────────────────────
