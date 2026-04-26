@@ -4,8 +4,10 @@ Built with Python + Dash. All data stays local.
 """
 
 import dash
-from dash import Dash, html, dcc
+from dash import Dash
 import dash_bootstrap_components as dbc
+
+from ui.layout import create_layout, register_routing_callback
 
 
 # ---------------------------------------------------------------------------
@@ -25,27 +27,13 @@ app = Dash(
 server = app.server  # Expose for production WSGI servers if ever needed
 
 # ---------------------------------------------------------------------------
-# Minimal layout (will be replaced in Phase 9 with full sidebar layout)
+# Layout + routing
 # ---------------------------------------------------------------------------
-app.layout = dbc.Container(
-    [
-        html.H1(
-            "🏦 Retirement Planner",
-            className="text-center my-5",
-            style={"fontFamily": "Inter, sans-serif", "fontWeight": "700"},
-        ),
-        html.P(
-            "Your personal retirement planning dashboard. Coming soon!",
-            className="text-center text-muted",
-            style={"fontFamily": "Inter, sans-serif"},
-        ),
-    ],
-    fluid=True,
-    className="py-4",
-)
+app.layout = create_layout()
+register_routing_callback(app)
 
 # ---------------------------------------------------------------------------
-# Import callbacks (uncomment as they are created)
+# Import callbacks (uncomment as they are implemented in later phases)
 # ---------------------------------------------------------------------------
 # from ui.callbacks import profile_cb
 # from ui.callbacks import income_cb
@@ -61,3 +49,4 @@ app.layout = dbc.Container(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     app.run(debug=True, port=8050)
+
