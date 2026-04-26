@@ -1,52 +1,39 @@
-# Retirement Planner
+# RetirePlan (Retirement Dashboard MVP)
 
-A personalized, local-first retirement planning web application built with Python and Dash.
+A highly personalized, local-first Python/Dash web application built to simulate your specific financial retirement roadmap.
 
-## Overview
+## Summary
 
-This dashboard serves as a customized retirement planning platform, focusing on a highly specific financial profile (e.g., married, California resident, real estate owner, no kids/pension). It provides a robust, monthly-granularity projection engine that handles:
-- Federal and California state tax estimation
-- Social Security modeling
-- Investment growth projections
-- Withdrawal strategies
+This application processes detailed custom dataclasses defining standard ordinary income, SS Claiming ages, Investment portfolios (separated by strict Tax characteristics like Pre-Tax, Tax-Free, Capital Gains bounds) and Real Estate Equity configurations mapping explicitly out to your expected lifespans.
 
-All data stays local on your machine, ensuring complete privacy.
+## Features
 
-## Tech Stack
-- [Python](https://www.python.org/)
-- [Dash](https://dash.plotly.com/) (Web framework)
-- [Dash Bootstrap Components](https://dash-bootstrap-components.opensource.faculty.ai/) (Darkly theme & layout)
-- [Plotly](https://plotly.com/python/) (Data visualization)
-- Pandas & NumPy (Data processing)
+- **Progressive Tax Engines:** Natively maps your nominal capital distributions locally through precise Federal Income Brackets + CA specific multipliers estimating real Tax burdens.
+- **SS Actuarial Adjustments:** Calculates and graphs the specific bonus/penalties scaling dynamically off your explicit birth year & structural FRA boundaries.
+- **Sequential Drawdowns:** Intelligently zeroes RMD burdens and draws down capital according to Taxable -> Tax-Deferred -> Roth hierarchies.
+- **Dark-Themed UI:** Glassmorphic modern interface engineered explicitly for visual tracking via Plotly.
+- **Local Persistence:** All data isolates strictly via local `data/profiles/my_plan.json` serialization logic.
 
-## Getting Started
+## Usage
 
-### Prerequisites
+You can launch the dashboard using the integrated script:
 
-Make sure you have Python 3 installed. You can install the required dependencies using the `requirements.txt` file.
+```bash
+launch.bat
+```
 
-### Installation
-
-1. Clone or download this repository.
-2. Create and activate a virtual environment (recommended):
-   ```bash
-   python -m venv venv
-   # On Windows:
-   venv\Scripts\activate
-   # On macOS/Linux:
-   source venv/bin/activate
-   ```
-3. Install the dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-### Running the App
-
-Start the Dash development server by running:
+Or run manually:
 
 ```bash
 python app.py
 ```
 
-The app will be accessible in your web browser at: [http://127.0.0.1:8050/](http://127.0.0.1:8050/)
+Then navigate to `http://127.0.0.1:8050` in your browser.
+
+## Testing
+
+A custom unittesting integration suite is located in `/tests`. Execute it via:
+
+```bash
+python -m unittest discover tests
+```

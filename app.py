@@ -33,15 +33,10 @@ app.layout = create_layout()
 register_routing_callback(app)
 
 # ---------------------------------------------------------------------------
-# Import callbacks (uncomment as they are implemented in later phases)
+# Import callbacks (Phase 13)
 # ---------------------------------------------------------------------------
-# from ui.callbacks import profile_cb
-# from ui.callbacks import income_cb
-# from ui.callbacks import expenses_cb
-# from ui.callbacks import investments_cb
-# from ui.callbacks import real_estate_cb
-# from ui.callbacks import projections_cb
-# from ui.callbacks import persistence_cb
+from ui.callbacks import register_all_callbacks
+register_all_callbacks(app)
 
 
 # ---------------------------------------------------------------------------

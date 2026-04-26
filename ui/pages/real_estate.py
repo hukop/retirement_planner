@@ -280,5 +280,14 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
             ),
             two_col(props_section, chart_section, left_width=8),
             strip,
+            html.Div(
+                html.Button(
+                    "💾  Save Updates",
+                    id="real-estate-save-btn",
+                    className="btn-primary-custom",
+                    n_clicks=0,
+                ),
+                style={"marginTop": "20px"},
+            ),
         ]
     )

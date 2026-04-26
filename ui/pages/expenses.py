@@ -259,5 +259,14 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
             ),
             two_col(recurring_section, html.Div([chart_section, onetime_section]), left_width=7),
             strip,
+            html.Div(
+                html.Button(
+                    "💾  Save Updates",
+                    id="expenses-save-btn",
+                    className="btn-primary-custom",
+                    n_clicks=0,
+                ),
+                style={"marginTop": "20px"},
+            ),
         ]
     )
