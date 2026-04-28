@@ -118,25 +118,28 @@ def _topbar() -> html.Div:
             # Right: actions
             html.Div(
                 [
+                    dcc.Download(id="download-plan"),
                     html.Button(
                         "💾  Save Plan",
                         id="btn-save-plan",
                         className="btn-ghost",
                         n_clicks=0,
                     ),
-                    html.Button(
-                        "📂  Load Plan",
-                        id="btn-load-plan",
-                        className="btn-ghost",
-                        n_clicks=0,
-                        style={"marginLeft": "8px"},
+                    dcc.Upload(
+                        id="upload-plan",
+                        children=html.Button(
+                            "📂  Load Plan",
+                            className="btn-ghost",
+                            style={"marginLeft": "8px"},
+                        ),
+                        multiple=False,
                     ),
                     html.Button(
                         "▶  Run Projections",
                         id="btn-run-projections",
                         className="btn-primary-custom",
                         n_clicks=0,
-                        style={"marginLeft": "12px"},
+                        style={"marginLeft": "12px", "display": "flex", "alignItems": "center"},
                     ),
                 ],
                 style={"display": "flex", "alignItems": "center"},
@@ -240,33 +243,49 @@ def register_routing_callback(app: dash.Dash) -> None:
         State("projection-store", "data"),
     )
     def render_page(pathname: str, profile_data: dict, projection_data: dict):
-        from ui.pages.dashboard   import layout as dashboard_layout
-        from ui.pages.profile     import layout as profile_layout
-        from ui.pages.income      import layout as income_layout
-        from ui.pages.expenses    import layout as expenses_layout
-        from ui.pages.investments import layout as investments_layout
-        from ui.pages.real_estate import layout as real_estate_layout
-        from ui.pages.projections import layout as projections_layout
+        try:
+            from ui.pages.dashboard   import layout as dashboard_layout
+            from ui.pages.profile     import layout as profile_layout
+            from ui.pages.income      import layout as income_layout
+            from ui.pages.expenses    import layout as expenses_layout
+            from ui.pages.investments import layout as investments_layout
+            from ui.pages.real_estate import layout as real_estate_layout
+            from ui.pages.projections import layout as projections_layout
 
-        page_key = _ROUTES.get(pathname or "/", "dashboard")
-        title    = _PAGE_TITLES.get(page_key, "")
+            page_key = _ROUTES.get(pathname or "/", "dashboard")
+            title    = _PAGE_TITLES.get(page_key, "")
 
-        if page_key == "dashboard":
-            return dashboard_layout(profile_data, projection_data), title
-        elif page_key == "profile":
-            return profile_layout(profile_data), title
-        elif page_key == "income":
-            return income_layout(profile_data), title
-        elif page_key == "expenses":
-            return expenses_layout(profile_data), title
-        elif page_key == "investments":
-            return investments_layout(profile_data), title
-        elif page_key == "real-estate":
-            return real_estate_layout(profile_data), title
-        elif page_key == "projections":
-            return projections_layout(profile_data, projection_data), title
-        else:
-            return _placeholder_page(page_key), title
+            if page_key == "dashboard":
+                content = dashboard_layout(profile_data, projection_data)
+            elif page_key == "profile":
+                content = profile_layout(profile_data)
+            elif page_key == "income":
+                content = income_layout(profile_data)
+            elif page_key == "expenses":
+                content = expenses_layout(profile_data)
+            elif page_key == "investments":
+                content = investments_layout(profile_data)
+            elif page_key == "real-estate":
+                content = real_estate_layout(profile_data)
+            elif page_key == "projections":
+                content = projections_layout(profile_data, projection_data)
+            else:
+                content = _placeholder_page(page_key)
+
+            return content, title
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            err_msg = html.Div(
+                [
+                    html.H3("🛠️  Page Rendering Error", className="text-danger"),
+                    html.P(f"An error occurred while loading this page: {str(e)}"),
+                    html.Pre(traceback.format_exc(), style={"fontSize": "11px", "color": "var(--text-muted)"})
+                ],
+                className="section-card"
+            )
+            return err_msg, "⚠️ Error"
 
     # ── Nav active-link highlighting ────────────────────────────────────
     for href, _, label in _NAV_ITEMS:

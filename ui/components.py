@@ -301,18 +301,11 @@ def select_row(
     return html.Div(
         [
             html.Div([label] + tooltip_el, className="input-label"),
-            dcc.Dropdown(
+            dbc.Select(
                 id=select_id,
                 options=options,
                 value=value,
-                clearable=clearable,
-                style={
-                    "backgroundColor": "var(--bg-input)",
-                    "color":           "var(--text-primary)",
-                    "border":          "1px solid var(--border-input)",
-                    "borderRadius":    "var(--radius-sm)",
-                    "fontSize":        "13.5px",
-                },
+                className="form-control",
             ),
         ],
         className="input-row",

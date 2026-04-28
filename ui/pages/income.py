@@ -165,7 +165,7 @@ def _ss_strategy_chart(profile: PlanProfile) -> go.Figure:
             copy_person = person
             copy_person.ss_claiming_age = age
             ss = compute_ss_benefit(copy_person, current_year)
-            benefits.append(ss.annual_benefit_at_claim)
+            benefits.append(ss.adjusted_monthly * 12)
             
         fig.add_trace(go.Bar(
             x=ages, 

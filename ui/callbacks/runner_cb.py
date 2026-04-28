@@ -31,11 +31,10 @@ def register_runner_callbacks(app: dash.Dash):
         Output("url", "pathname", allow_duplicate=True),
         Output("toast-container", "children", allow_duplicate=True),
         Input("btn-run-projections", "n_clicks"),
-        Input("dash-run-btn", "n_clicks"),  # On dashboard
         State("profile-store", "data"),
         prevent_initial_call=True
     )
-    def run_engine(n_clicks_top, n_clicks_dash, profile_data):
+    def run_engine(n_clicks_top, profile_data):
         if not dash.ctx.triggered_id:
             raise dash.exceptions.PreventUpdate
             
@@ -67,6 +66,7 @@ def register_runner_callbacks(app: dash.Dash):
 
     # ── Save Plan ────────────────────────────────────────────────────────
     @app.callback(
+        Output("download-plan", "data"),
         Output("toast-container", "children", allow_duplicate=True),
         Input("btn-save-plan", "n_clicks"),
         State("profile-store", "data"),
@@ -77,39 +77,43 @@ def register_runner_callbacks(app: dash.Dash):
             raise dash.exceptions.PreventUpdate
             
         try:
-            with open(DEFAULT_PLAN_FILE, "w") as f:
-                json.dump(profile_data, f, indent=2)
-                
-            return dbc.Toast(
-                f"Plan saved to {DEFAULT_PLAN_FILE.name}.",
+            # We use dcc.send_string to push the JSON natively to the browser's download manager.
+            default_filename = profile_data.get("plan_name", "my_retirement_plan").replace(" ", "_").lower() + ".json"
+            
+            json_str = json.dumps(profile_data, indent=2)
+            
+            return dict(content=json_str, filename=default_filename), dbc.Toast(
+                "Plan downloaded successfully.",
                 header="Save Success",
                 icon="success",
                 duration=3000,
                 is_open=True,
             )
         except Exception as e:
-            return dbc.Toast(f"Failed to save: {str(e)}", header="Error", icon="danger", duration=4000, is_open=True)
+            return dash.no_update, dbc.Toast(f"Failed to save: {str(e)}", header="Error", icon="danger", duration=4000, is_open=True)
 
     # ── Load Plan ────────────────────────────────────────────────────────
     @app.callback(
         Output("profile-store", "data", allow_duplicate=True),
         Output("url", "pathname", allow_duplicate=True), # Force reload by pushing to dash
         Output("toast-container", "children", allow_duplicate=True),
-        Input("btn-load-plan", "n_clicks"),
+        Input("upload-plan", "contents"),
+        State("upload-plan", "filename"),
         prevent_initial_call=True
     )
-    def load_plan(n_clicks):
-        if not DEFAULT_PLAN_FILE.exists():
-            return dash.no_update, dash.no_update, dbc.Toast(
-                "No saved plan found.", header="Load Plan", icon="warning", duration=3000, is_open=True
-            )
+    def load_plan(contents, filename):
+        if contents is None:
+            raise dash.exceptions.PreventUpdate
             
         try:
-            with open(DEFAULT_PLAN_FILE, "r") as f:
-                data = json.load(f)
+            import base64
+            # contents look like "data:application/json;base64,eyJwbGFu..."
+            content_type, content_string = contents.split(',')
+            decoded = base64.b64decode(content_string)
+            data = json.loads(decoded.decode('utf-8'))
                 
             return data, "/", dbc.Toast(
-                "Plan loaded successfully.", header="Load Success", icon="success", duration=3000, is_open=True
+                f"Plan '{filename}' loaded successfully.", header="Load Success", icon="success", duration=3000, is_open=True
             )
         except Exception as e:
             return dash.no_update, dash.no_update, dbc.Toast(

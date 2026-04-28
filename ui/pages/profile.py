@@ -55,10 +55,14 @@ def _person_form(owner: str, person: Person, label: str) -> html.Div:
     ss_at_fra  = person.ss_monthly_benefit
     from engine.social_security import fra_in_years, adjusted_monthly_benefit
     from datetime import date
-    birth_yr   = date.today().year - person.current_age
+    
+    curr_age = int(person.current_age or 50)
+    claim_age = float(person.ss_claiming_age or 67)
+    
+    birth_yr   = date.today().year - curr_age
     fra        = fra_in_years(birth_yr)
     adj_benefit = adjusted_monthly_benefit(
-        ss_at_fra, float(person.ss_claiming_age), birth_yr
+        ss_at_fra, claim_age, birth_yr
     )
 
     return section_card(
@@ -231,10 +235,6 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
         profile = PlanProfile.sample()
 
     from datetime import date
-    from engine.social_security import compute_ss_benefit
-    ss_self   = compute_ss_benefit(profile.self_person)
-    ss_spouse = compute_ss_benefit(profile.spouse)
-
     # Build the two-column person forms
     people_row = two_col(
         _person_form("self",   profile.self_person, f"You — {profile.self_person.name}"),
@@ -255,9 +255,13 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
         float(profile.spouse.ss_claiming_age), birth_yr_spouse,
     )
 
+    # Summary statistics calculation with safety
+    y_to_ret_slf = max(0, int(profile.self_person.retirement_age or 0) - int(profile.self_person.current_age or 0))
+    y_to_ret_sp  = max(0, int(profile.spouse.retirement_age or 0) - int(profile.spouse.current_age or 0))
+
     strip = summary_row([
-        ("Years to retirement (you)",    f"{profile.self_person.retirement_age - profile.self_person.current_age} yrs",  "blue"),
-        ("Years to retirement (spouse)", f"{profile.spouse.retirement_age - profile.spouse.current_age} yrs",  "blue"),
+        ("Years to retirement (you)",    f"{y_to_ret_slf} yrs",  "blue"),
+        ("Years to retirement (spouse)", f"{y_to_ret_sp} yrs",  "blue"),
         ("Your SS at claim",             f"${adj_self:,.0f}/mo",   "green"),
         ("Spouse SS at claim",           f"${adj_spouse:,.0f}/mo", "green"),
     ])

@@ -9,7 +9,7 @@ Models are JSON-serializable for profile persistence.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -247,18 +247,23 @@ class PlanProfile:
 
     @classmethod
     def from_dict(cls, data: dict) -> PlanProfile:
-        """Reconstruct a PlanProfile from a plain dict."""
+        """Reconstruct a PlanProfile from a plain dict, discarding unknown keys."""
+        def safe_load(dataclass_type, item_dict):
+            valid_keys = {f.name for f in fields(dataclass_type)}
+            filtered = {k: v for k, v in item_dict.items() if k in valid_keys}
+            return dataclass_type(**filtered)
+
         return cls(
-            self_person=Person(**data.get("self_person", {})),
-            spouse=Person(**data.get("spouse", {})),
+            self_person=safe_load(Person, data.get("self_person", {})),
+            spouse=safe_load(Person, data.get("spouse", {})),
             plan_name=data.get("plan_name", "My Retirement Plan"),
             filing_status=data.get("filing_status", "married_jointly"),
             inflation_rate_pct=data.get("inflation_rate_pct", 3.0),
-            incomes=[IncomeSource(**i) for i in data.get("incomes", [])],
-            expenses=[Expense(**e) for e in data.get("expenses", [])],
-            one_time_expenses=[OneTimeExpense(**o) for o in data.get("one_time_expenses", [])],
-            accounts=[InvestmentAccount(**a) for a in data.get("accounts", [])],
-            properties=[Property(**p) for p in data.get("properties", [])],
+            incomes=[safe_load(IncomeSource, i) for i in data.get("incomes", [])],
+            expenses=[safe_load(Expense, e) for e in data.get("expenses", [])],
+            one_time_expenses=[safe_load(OneTimeExpense, o) for o in data.get("one_time_expenses", [])],
+            accounts=[safe_load(InvestmentAccount, a) for a in data.get("accounts", [])],
+            properties=[safe_load(Property, p) for p in data.get("properties", [])],
         )
 
     @classmethod

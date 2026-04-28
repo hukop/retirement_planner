@@ -286,12 +286,10 @@ def _quick_actions() -> html.Div:
                 style={"display": "block", "width": "100%", "marginBottom": "8px",
                        "textDecoration": "none", "textAlign": "center"},
             ),
-            html.Button(
-                "▶  Run Projections",
-                id="dash-run-btn",
-                className="btn-primary-custom",
-                n_clicks=0,
-                style={"width": "100%", "justifyContent": "center"},
+            html.A(
+                html.Button("▶  Run Projections", className="btn-primary-custom w-100"),
+                href="/projections",
+                style={"textDecoration": "none"},
             ),
         ],
         style={"marginTop": "16px"},

@@ -39,7 +39,30 @@ def register_dynamic_callbacks(app: dash.Dash):
             patched.append(func(idx, defaults))
             return patched
 
-    # Delete Callbacks (Dash Patch doesn't easily support deleting by index from patterned inputs,
-    # so typically we just hide them via CSS, or we force a page reload from the profile-store.
-    # For MVP, we use a simple generic pattern to clear the contents visually, 
-    # but a true sync requires the State callback.)
+    # ── Soft Delete via Clientside CSS ──
+    # Dash Patching cannot dynamically delete indexed elements universally.
+    # Therefore, when a user clicks 'Remove', we fire JS to hide the wrapper natively.
+    # Our engine state-sync callback will look for `style={'display': 'none'}` and drop it.
+    
+    _delete_configs = [
+        ("btn-delete-income", "income-item"),
+        ("btn-delete-expense", "expense-item"),
+        ("btn-delete-otex", "otex-item"),
+        ("btn-delete-account", "account-item"),
+        ("btn-delete-property", "property-item")
+    ]
+    
+    for btn_type, wrapper_type in _delete_configs:
+        app.clientside_callback(
+            """
+            function(n_clicks) {
+                if (n_clicks > 0) {
+                    return {"display": "none"};
+                }
+                return window.dash_clientside.no_update;
+            }
+            """,
+            Output({"type": wrapper_type, "index": dash.MATCH}, "style"),
+            Input({"type": btn_type, "index": dash.MATCH}, "n_clicks"),
+            prevent_initial_call=True
+        )

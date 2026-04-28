@@ -60,14 +60,11 @@ _FRA_DEFAULT = (67, 0)  # born 1960+
 def full_retirement_age(birth_year: int) -> tuple[int, int]:
     """
     Return the Full Retirement Age as ``(years, months)`` for the given birth year.
-
-    Examples
-    --------
-    >>> full_retirement_age(1960)
-    (67, 0)
-    >>> full_retirement_age(1955)
-    (66, 2)
     """
+    try:
+        birth_year = int(birth_year)
+    except (TypeError, ValueError):
+        return _FRA_DEFAULT
     for upper, fra_y, fra_m in _FRA_TABLE:
         if birth_year <= upper:
             return fra_y, fra_m
@@ -147,10 +144,14 @@ def adjusted_monthly_benefit(
     -------
     Adjusted monthly benefit in today's dollars (before future COLA).
     """
-    if pia_monthly <= 0:
+    try:
+        val = float(pia_monthly or 0)
+        if val <= 0:
+            return 0.0
+        factor = claiming_factor(float(claiming_age), int(birth_year))
+        return round(val * factor, 2)
+    except (TypeError, ValueError):
         return 0.0
-    factor = claiming_factor(claiming_age, birth_year)
-    return round(pia_monthly * factor, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -289,19 +290,23 @@ def compute_ss_benefit(person: Person, current_year: int | None = None) -> SSBen
     if current_year is None:
         current_year = date.today().year
 
-    birth_year = current_year - person.current_age
+    pia = float(person.ss_monthly_benefit or 0)
+    claim_age = float(person.ss_claiming_age or 67)
+    curr_age = float(person.current_age or 50)
+    
+    birth_year = current_year - int(curr_age)
     fra        = fra_in_years(birth_year)
-    factor     = claiming_factor(float(person.ss_claiming_age), birth_year)
-    adjusted   = round(person.ss_monthly_benefit * factor, 2)
+    factor     = claiming_factor(claim_age, birth_year)
+    adjusted   = round(pia * factor, 2)
 
     # Claim year = the year the person reaches their claiming age
-    years_until_claim = max(0, person.ss_claiming_age - person.current_age)
+    years_until_claim = max(0, int(claim_age - curr_age))
     claim_year = current_year + years_until_claim
 
     return SSBenefit(
-        pia_monthly=person.ss_monthly_benefit,
+        pia_monthly=pia,
         fra=fra,
-        claiming_age=float(person.ss_claiming_age),
+        claiming_age=claim_age,
         factor=factor,
         adjusted_monthly=adjusted,
         claim_year=claim_year,
