@@ -159,12 +159,14 @@ class Property:
     @property
     def net_equity(self) -> float:
         """Current equity = value − mortgage balance."""
-        return self.current_value - self.mortgage_balance
+        return float(self.current_value or 0) - float(self.mortgage_balance or 0)
 
     @property
     def net_monthly_rental_income(self) -> float:
         """Net rental income = rent − expenses − mortgage payment."""
-        return self.monthly_rental_income - self.monthly_expenses - self.monthly_payment
+        return (float(self.monthly_rental_income or 0) - 
+                float(self.monthly_expenses or 0) - 
+                float(self.monthly_payment or 0))
 
 
 # ---------------------------------------------------------------------------
@@ -200,20 +202,25 @@ class PlanProfile:
     def retirement_year_self(self) -> int:
         """Calendar year when self retires (approximate — assumes today's year)."""
         from datetime import date
-        return date.today().year + (self.self_person.retirement_age - self.self_person.current_age)
+        ret_age = int(self.self_person.retirement_age or 65)
+        cur_age = int(self.self_person.current_age or 50)
+        return date.today().year + (ret_age - cur_age)
 
     @property
     def retirement_year_spouse(self) -> int:
         """Calendar year when spouse retires."""
         from datetime import date
-        return date.today().year + (self.spouse.retirement_age - self.spouse.current_age)
+        ret_age = int(self.spouse.retirement_age or 65)
+        cur_age = int(self.spouse.current_age or 50)
+        return date.today().year + (ret_age - cur_age)
 
     @property
     def plan_end_year(self) -> int:
         """Last year of the plan = max life expectancy of both people."""
         from datetime import date
-        end_self = date.today().year + (self.self_person.life_expectancy - self.self_person.current_age)
-        end_spouse = date.today().year + (self.spouse.life_expectancy - self.spouse.current_age)
+        curr_yr = date.today().year
+        end_self = curr_yr + (int(self.self_person.life_expectancy or 90) - int(self.self_person.current_age or 50))
+        end_spouse = curr_yr + (int(self.spouse.life_expectancy or 90) - int(self.spouse.current_age or 50))
         return max(end_self, end_spouse)
 
     @property
@@ -246,11 +253,17 @@ class PlanProfile:
             json.dump(self.to_dict(), f, indent=2)
 
     @classmethod
-    def from_dict(cls, data: dict) -> PlanProfile:
+    def from_dict(cls, data: dict | None) -> PlanProfile:
         """Reconstruct a PlanProfile from a plain dict, discarding unknown keys."""
+        if not isinstance(data, dict):
+            # Fallback to sample if data is corrupted or None
+            return cls.sample()
+
         def safe_load(dataclass_type, item_dict):
+            if not isinstance(item_dict, dict):
+                return dataclass_type()
             valid_keys = {f.name for f in fields(dataclass_type)}
-            filtered = {k: v for k, v in item_dict.items() if k in valid_keys}
+            filtered = {k: v for k, v in item_dict.items() if k in valid_keys and v is not None}
             return dataclass_type(**filtered)
 
         return cls(
@@ -259,11 +272,11 @@ class PlanProfile:
             plan_name=data.get("plan_name", "My Retirement Plan"),
             filing_status=data.get("filing_status", "married_jointly"),
             inflation_rate_pct=data.get("inflation_rate_pct", 3.0),
-            incomes=[safe_load(IncomeSource, i) for i in data.get("incomes", [])],
-            expenses=[safe_load(Expense, e) for e in data.get("expenses", [])],
-            one_time_expenses=[safe_load(OneTimeExpense, o) for o in data.get("one_time_expenses", [])],
-            accounts=[safe_load(InvestmentAccount, a) for a in data.get("accounts", [])],
-            properties=[safe_load(Property, p) for p in data.get("properties", [])],
+            incomes=[safe_load(IncomeSource, i) for i in data.get("incomes", []) if isinstance(i, dict)],
+            expenses=[safe_load(Expense, e) for e in data.get("expenses", []) if isinstance(e, dict)],
+            one_time_expenses=[safe_load(OneTimeExpense, o) for o in data.get("one_time_expenses", []) if isinstance(o, dict)],
+            accounts=[safe_load(InvestmentAccount, a) for a in data.get("accounts", []) if isinstance(a, dict)],
+            properties=[safe_load(Property, p) for p in data.get("properties", []) if isinstance(p, dict)],
         )
 
     @classmethod

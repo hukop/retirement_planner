@@ -153,10 +153,11 @@ def _expense_pie_chart(profile: PlanProfile) -> go.Figure:
     colors = []
     
     for exp in profile.expenses:
-        if exp.monthly_amount > 0:
+        amt = float(exp.monthly_amount or 0)
+        if amt > 0:
             cat_str = next((c["label"] for c in _CATEGORY_OPTIONS if c["value"] == exp.category), "Other")
             labels.append(cat_str)
-            values.append(exp.monthly_amount)
+            values.append(amt)
             colors.append(cat_colors.get(exp.category, "#94a3b8"))
             
     if not values:
@@ -239,10 +240,10 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
     )
 
     # ── Summary Strip ────────────────────────────────────────────────────
-    current_annual = sum(e.monthly_amount * 12 for e in profile.expenses)
+    current_annual = sum((float(e.monthly_amount or 0)) * 12 for e in profile.expenses)
     
     # Estimate retirement annual cost (roughly, un-inflated)
-    retire_annual = sum(e.monthly_amount * 12 * (e.retirement_pct / 100) for e in profile.expenses)
+    retire_annual = sum((float(e.monthly_amount or 0)) * 12 * (float(e.retirement_pct or 100) / 100) for e in profile.expenses)
     
     strip = summary_row([
         ("Current Annual Spend", f"${current_annual:,.0f}/yr", "amber"),

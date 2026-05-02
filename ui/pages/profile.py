@@ -55,10 +55,10 @@ def _person_form(owner: str, person: Person, label: str) -> html.Div:
     ss_at_fra  = person.ss_monthly_benefit
     from engine.social_security import fra_in_years, adjusted_monthly_benefit
     from datetime import date
-    
+
     curr_age = int(person.current_age or 50)
     claim_age = float(person.ss_claiming_age or 67)
-    
+
     birth_yr   = date.today().year - curr_age
     fra        = fra_in_years(birth_yr)
     adj_benefit = adjusted_monthly_benefit(
@@ -93,7 +93,7 @@ def _person_form(owner: str, person: Person, label: str) -> html.Div:
                             label="Retirement Age",
                             input_id=f"{pfx}-retirement-age",
                             value=person.retirement_age,
-                            min_val=50, max_val=80, step=1,
+                            min_val=18, max_val=80, step=1,
                             tooltip="Target age to stop working.",
                             suffix=" yrs",
                         ),
@@ -227,6 +227,34 @@ def _global_settings(profile: PlanProfile) -> html.Div:
 # ---------------------------------------------------------------------------
 # Main layout function
 # ---------------------------------------------------------------------------
+def _profile_summary(profile: PlanProfile) -> html.Div:
+    """Helper to build the summary strip for the profile page."""
+    from engine.social_security import adjusted_monthly_benefit
+    from datetime import date
+
+    current_year = date.today().year
+    birth_yr_self   = current_year - int(profile.self_person.current_age or 50)
+    birth_yr_spouse = current_year - int(profile.spouse.current_age or 50)
+
+    adj_self   = adjusted_monthly_benefit(
+        float(profile.self_person.ss_monthly_benefit or 0),
+        float(profile.self_person.ss_claiming_age or 67), birth_yr_self,
+    )
+    adj_spouse = adjusted_monthly_benefit(
+        float(profile.spouse.ss_monthly_benefit or 0),
+        float(profile.spouse.ss_claiming_age or 67), birth_yr_spouse,
+    )
+
+    y_to_ret_slf = max(0, int(profile.self_person.retirement_age or 0) - int(profile.self_person.current_age or 50))
+    y_to_ret_sp  = max(0, int(profile.spouse.retirement_age or 0) - int(profile.spouse.current_age or 50))
+
+    return summary_row([
+        ("Years to retirement (you)",    f"{y_to_ret_slf} yrs",  "blue"),
+        ("Years to retirement (spouse)", f"{y_to_ret_sp} yrs",  "blue"),
+        ("Your SS at claim",             f"${adj_self:,.0f}/mo",   "green"),
+        ("Spouse SS at claim",           f"${adj_spouse:,.0f}/mo", "green"),
+    ])
+
 def layout(profile_data: Optional[dict] = None) -> html.Div:
     """Render the full profile page."""
     if profile_data:
@@ -241,31 +269,6 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
         _person_form("spouse", profile.spouse,       f"Spouse — {profile.spouse.name}"),
     )
 
-    # Summary strip
-    from engine.social_security import fra_in_years, adjusted_monthly_benefit
-    current_year = date.today().year
-    birth_yr_self   = current_year - profile.self_person.current_age
-    birth_yr_spouse = current_year - profile.spouse.current_age
-    adj_self   = adjusted_monthly_benefit(
-        profile.self_person.ss_monthly_benefit,
-        float(profile.self_person.ss_claiming_age), birth_yr_self,
-    )
-    adj_spouse = adjusted_monthly_benefit(
-        profile.spouse.ss_monthly_benefit,
-        float(profile.spouse.ss_claiming_age), birth_yr_spouse,
-    )
-
-    # Summary statistics calculation with safety
-    y_to_ret_slf = max(0, int(profile.self_person.retirement_age or 0) - int(profile.self_person.current_age or 0))
-    y_to_ret_sp  = max(0, int(profile.spouse.retirement_age or 0) - int(profile.spouse.current_age or 0))
-
-    strip = summary_row([
-        ("Years to retirement (you)",    f"{y_to_ret_slf} yrs",  "blue"),
-        ("Years to retirement (spouse)", f"{y_to_ret_sp} yrs",  "blue"),
-        ("Your SS at claim",             f"${adj_self:,.0f}/mo",   "green"),
-        ("Spouse SS at claim",           f"${adj_spouse:,.0f}/mo", "green"),
-    ])
-
     return html.Div(
         [
             page_header(
@@ -276,7 +279,10 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
             people_row,
             html.Div(style={"height": "4px"}),
             _global_settings(profile),
-            strip,
+            html.Div(
+                _profile_summary(profile),
+                id="profile-summary-container"
+            ),
             # Save button row
             html.Div(
                 [

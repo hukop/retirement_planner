@@ -151,10 +151,11 @@ def _ss_strategy_chart(profile: PlanProfile) -> go.Figure:
     
     for owner, person, color in [("Self", profile.self_person, "#4a7af7"), 
                                  ("Spouse", profile.spouse, "#34d399")]:
-        if person.ss_monthly_benefit <= 0:
+        pia = float(person.ss_monthly_benefit or 0)
+        if pia <= 0:
             continue
             
-        birth_year = current_year - person.current_age
+        birth_year = current_year - int(person.current_age or 50)
         fra = fra_in_years(birth_year)
         
         ages = list(range(62, 71))
@@ -228,7 +229,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
     )
 
     # ── Summary Strip ────────────────────────────────────────────────────
-    total_active_income = sum(i.annual_amount for i in profile.incomes)
+    total_active_income = sum(float(i.annual_amount or 0) for i in profile.incomes)
     
     strip = summary_row([
         ("Total Active Income", f"${total_active_income:,.0f}/yr", "blue"),

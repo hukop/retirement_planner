@@ -15,7 +15,7 @@ def register_dynamic_callbacks(app: dash.Dash):
     from ui.pages.expenses import _expense_item, _one_time_expense_item
     from ui.pages.investments import _investment_item
     from ui.pages.real_estate import _property_item
-    
+
     # ── Map configs ──
     _configs = [
         ("btn-add-income", "income-sources-container", _income_source_item, {"name": "New Income", "annual_amount": 0}),
@@ -24,7 +24,7 @@ def register_dynamic_callbacks(app: dash.Dash):
         ("btn-add-account", "accounts-container", _investment_item, {"name": "New Account", "balance": 0}),
         ("btn-add-property", "properties-container", _property_item, {"name": "New Property"}),
     ]
-    
+
     # Register Add Callbacks
     for btn_id, container_id, render_func, default_dict in _configs:
         @app.callback(
@@ -34,7 +34,7 @@ def register_dynamic_callbacks(app: dash.Dash):
         )
         def _add_item(n_clicks, func=render_func, defaults=default_dict):
             # Generate a random high index to avoid conflicts
-            idx = n_clicks + 1000 
+            idx = n_clicks + 1000
             patched = Patch()
             patched.append(func(idx, defaults))
             return patched
@@ -43,7 +43,7 @@ def register_dynamic_callbacks(app: dash.Dash):
     # Dash Patching cannot dynamically delete indexed elements universally.
     # Therefore, when a user clicks 'Remove', we fire JS to hide the wrapper natively.
     # Our engine state-sync callback will look for `style={'display': 'none'}` and drop it.
-    
+
     _delete_configs = [
         ("btn-delete-income", "income-item"),
         ("btn-delete-expense", "expense-item"),
@@ -51,7 +51,7 @@ def register_dynamic_callbacks(app: dash.Dash):
         ("btn-delete-account", "account-item"),
         ("btn-delete-property", "property-item")
     ]
-    
+
     for btn_type, wrapper_type in _delete_configs:
         app.clientside_callback(
             """
@@ -66,3 +66,15 @@ def register_dynamic_callbacks(app: dash.Dash):
             Input({"type": btn_type, "index": dash.MATCH}, "n_clicks"),
             prevent_initial_call=True
         )
+
+    # ── Real Estate: toggle rental cashflow fields by property type ──
+    app.clientside_callback(
+        """
+        function(prop_type) {
+            return {"display": prop_type === "rental" ? "block" : "none"};
+        }
+        """,
+        Output({"type": "prop-rental-group", "index": dash.MATCH}, "style"),
+        Input({"type": "prop-type", "index": dash.MATCH}, "value"),
+        prevent_initial_call=False
+    )

@@ -184,10 +184,12 @@ def _equity_bubble_chart(profile: PlanProfile) -> go.Figure:
     colors = []
     
     for prop in profile.properties:
-        equity = max(0, prop.current_value - prop.mortgage_balance)
+        pv = float(prop.current_value or 0)
+        mb = float(prop.mortgage_balance or 0)
+        equity = max(0, pv - mb)
         names.append(prop.name)
-        x_vals.append(prop.current_value)
-        y_vals.append(prop.mortgage_balance)
+        x_vals.append(pv)
+        y_vals.append(mb)
         equity_sizes.append(equity)
         colors.append("#4a7af7" if prop.property_type == "primary" else "#34d399")
         
@@ -257,11 +259,11 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
     )
 
     # ── Summary Strip ───────────────────────────────────────────────────
-    total_val = sum(p.current_value for p in profile.properties)
-    total_debt = sum(p.mortgage_balance for p in profile.properties)
+    total_val = sum(float(p.current_value or 0) for p in profile.properties)
+    total_debt = sum(float(p.mortgage_balance or 0) for p in profile.properties)
     total_equity = total_val - total_debt
     
-    net_rent_mo = sum((p.monthly_rental_income - p.monthly_expenses - p.monthly_payment) 
+    net_rent_mo = sum((float(p.monthly_rental_income or 0) - float(p.monthly_expenses or 0) - float(p.monthly_payment or 0)) 
                        for p in profile.properties if p.property_type == "rental")
     
     strip = summary_row([

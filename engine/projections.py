@@ -412,7 +412,10 @@ class ProjectionEngine:
         """
         p = self.profile
         # Resolve start/end ages (0 = now / retirement)
-        start_age = src.start_age if src.start_age > 0 else p.self_person.current_age
+        owner_current_age = (
+            p.self_person.current_age if src.owner == "self" else p.spouse.current_age
+        )
+        start_age = src.start_age if src.start_age > 0 else owner_current_age
         end_age   = src.end_age   if src.end_age   > 0 else 999   # never stops
 
         if owner_age < start_age or owner_age >= end_age:

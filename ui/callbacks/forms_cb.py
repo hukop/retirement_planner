@@ -1,7 +1,7 @@
 """
 State Syncing Callbacks.
 
-Binds the explicit Save buttons across the application to pull component State 
+Binds the explicit Save buttons across the application to pull component State
 from the DOM and synchronize it backward into the local `profile-store`.
 """
 
@@ -16,24 +16,24 @@ def _toast(msg: str) -> dbc.Toast:
     )
 
 def register_forms_callbacks(app: dash.Dash):
-    
+
     # ── 1. Profile Page Sync ─────────────────────────────────────────────
     @app.callback(
         Output("profile-store", "data", allow_duplicate=True),
         Output("toast-container", "children", allow_duplicate=True),
         Input("profile-save-btn", "n_clicks"),
         State("profile-store", "data"),
-        
+
         # Self
         State("profile-self-name", "value"), State("profile-self-age", "value"),
         State("profile-self-retirement-age", "value"), State("profile-self-life-expectancy", "value"),
         State("profile-self-ss-benefit", "value"), State("profile-self-ss-claiming-age", "value"),
-        
+
         # Spouse
         State("profile-spouse-name", "value"), State("profile-spouse-age", "value"),
         State("profile-spouse-retirement-age", "value"), State("profile-spouse-life-expectancy", "value"),
         State("profile-spouse-ss-benefit", "value"), State("profile-spouse-ss-claiming-age", "value"),
-        
+
         # Globals
         State("profile-filing-status", "value"), State("profile-inflation-rate", "value"),
         prevent_initial_call=True
@@ -45,24 +45,45 @@ def register_forms_callbacks(app: dash.Dash):
         filing, inflation
     ):
         if not profile_data: profile_data = {}
-        
+
         profile_data.update({
             "filing_status": filing or "married_jointly",
             "inflation_rate_pct": float(inflation or 3.0),
         })
-        
-        profile_data["self_person"] = {
+
+        # Merge with existing values so that debounced inputs that haven't
+        # reported their new value yet don't wipe out previously saved data.
+        existing_self = profile_data.get("self_person", {})
+        new_self = {
             "name": slf_n, "current_age": slf_age, "retirement_age": slf_ret,
-            "life_expectancy": slf_life, "ss_monthly_benefit": slf_ss_ben, "ss_claiming_age": slf_ss_age
+            "life_expectancy": slf_life, "ss_monthly_benefit": slf_ss_ben,
+            "ss_claiming_age": slf_ss_age,
         }
-        
-        profile_data["spouse"] = {
+        profile_data["self_person"] = {**existing_self, **{k: v for k, v in new_self.items() if v is not None}}
+
+        existing_spouse = profile_data.get("spouse", {})
+        new_spouse = {
             "name": sp_n, "current_age": sp_age, "retirement_age": sp_ret,
-            "life_expectancy": sp_life, "ss_monthly_benefit": sp_ss_ben, "ss_claiming_age": sp_ss_age
+            "life_expectancy": sp_life, "ss_monthly_benefit": sp_ss_ben,
+            "ss_claiming_age": sp_ss_age,
         }
-        
-        from ui.pages.profile import layout
+        profile_data["spouse"] = {**existing_spouse, **{k: v for k, v in new_spouse.items() if v is not None}}
+
         return profile_data, _toast("Profile settings updated locally.")
+
+    # ── Reactive UI Updates (Profile Summary) ───────────────────────────
+    @app.callback(
+        Output("profile-summary-container", "children"),
+        Input("profile-store", "data"),
+        prevent_initial_call=False
+    )
+    def update_profile_summary(profile_data):
+        if not profile_data:
+            raise dash.exceptions.PreventUpdate
+        from engine.models import PlanProfile
+        from ui.pages.profile import _profile_summary
+        profile = PlanProfile.from_dict(profile_data)
+        return _profile_summary(profile)
 
     # ── 2. Income Page Sync ──────────────────────────────────────────────
     @app.callback(
@@ -74,8 +95,8 @@ def register_forms_callbacks(app: dash.Dash):
         State({"type": "income-owner", "index": ALL}, "value"),
         State({"type": "income-amount", "index": ALL}, "value"),
         State({"type": "income-raise", "index": ALL}, "value"),
-        State({"type": "income-start", "index": ALL}, "value"),
-        State({"type": "income-end", "index": ALL}, "value"),
+        State({"type": "income-start-age", "index": ALL}, "value"),
+        State({"type": "income-end-age", "index": ALL}, "value"),
         State({"type": "income-item", "index": ALL}, "style"),
         prevent_initial_call=True
     )
@@ -87,7 +108,7 @@ def register_forms_callbacks(app: dash.Dash):
         for i in range(len(names)):
             if styles[i] and styles[i].get("display") == "none":
                 continue # Skip soft-deleted items
-                
+
             incomes.append({
                 "name": names[i], "owner": owners[i],
                 "annual_amount": amounts[i] or 0.0, "annual_raise_pct": raises[i] or 0.0,
@@ -116,7 +137,7 @@ def register_forms_callbacks(app: dash.Dash):
         State({"type": "otex-item", "index": ALL}, "style"),
         prevent_initial_call=True
     )
-    def sync_expenses(n_clicks, profile_data, rec_cats, rec_amts, rec_pcts, rec_infs, rec_styles, 
+    def sync_expenses(n_clicks, profile_data, rec_cats, rec_amts, rec_pcts, rec_infs, rec_styles,
                                             otex_names, otex_amts, otex_years, otex_infs, otex_styles):
         if not dash.ctx.triggered_id or not profile_data:
             raise dash.exceptions.PreventUpdate
@@ -126,23 +147,23 @@ def register_forms_callbacks(app: dash.Dash):
         for i in range(len(rec_cats)):
             if rec_styles[i] and rec_styles[i].get("display") == "none":
                 continue # Skip soft-deleted items
-                
+
             expenses.append({
                 "name": rec_cats[i] or "Expense",
                 "category": rec_cats[i], "monthly_amount": rec_amts[i] or 0.0,
                 "retirement_pct": float(rec_pcts[i] or 100.0), "inflation_adjusted": bool(rec_infs[i])
             })
-        
+
         one_times = []
         for i in range(len(otex_names)):
             if otex_styles[i] and otex_styles[i].get("display") == "none":
                 continue
-                
+
             one_times.append({
                 "name": otex_names[i], "amount": float(otex_amts[i] or 0.0),
                 "year": int(otex_years[i] or 2030), "inflation_adjusted": bool(otex_infs[i])
             })
-            
+
         profile_data["expenses"] = expenses
         profile_data["one_time_expenses"] = one_times
         return profile_data, _toast("Expense budgets synced.")
@@ -172,7 +193,7 @@ def register_forms_callbacks(app: dash.Dash):
         for i in range(len(names)):
             if styles[i] and styles[i].get("display") == "none":
                 continue # Skip soft-deleted items
-                
+
             accounts.append({
                 "name": names[i], "account_type": types[i], "owner": owners[i],
                 "balance": float(bals[i] or 0), "annual_return_pct": float(rets[i] or 0),
@@ -209,7 +230,7 @@ def register_forms_callbacks(app: dash.Dash):
         for i in range(len(names)):
             if styles[i] and styles[i].get("display") == "none":
                 continue # Skip soft-deleted items
-                
+
             properties.append({
                 "name": names[i], "property_type": types[i],
                 "current_value": float(vals[i] or 0), "appreciation_rate_pct": float(apprs[i] or 0),

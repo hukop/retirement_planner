@@ -149,12 +149,13 @@ def _portfolio_breakdown_chart(profile: PlanProfile) -> go.Figure:
     values = [0, 0, 0]
     
     for acc in profile.accounts:
+        bal = float(acc.balance or 0)
         if acc.account_type in ("401k", "trad_ira"):
-            values[0] += acc.balance
+            values[0] += bal
         elif acc.account_type in ("roth_ira", "hsa"):
-            values[1] += acc.balance
+            values[1] += bal
         else:
-            values[2] += acc.balance
+            values[2] += bal
             
     fig = go.Figure(go.Pie(
         labels=labels,
@@ -220,8 +221,8 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
     )
 
     # ── Summary Strip ───────────────────────────────────────────────────
-    total_balance = sum(a.balance for a in profile.accounts)
-    total_contribs = sum(a.annual_contribution for a in profile.accounts)
+    total_balance = sum(float(a.balance or 0) for a in profile.accounts)
+    total_contribs = sum(float(a.annual_contribution or 0) for a in profile.accounts)
     
     strip = summary_row([
         ("Total Net Worth (Investments)", f"${total_balance:,.0f}", "blue"),
