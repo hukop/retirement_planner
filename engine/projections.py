@@ -158,6 +158,12 @@ class ProjectionEngine:
 
         rows: list[dict] = []
 
+        # Prior year-end balances for IRS-correct RMD calculation.
+        # Bootstrap from starting balances (used in year 1 before Jan capture runs).
+        prior_balances: dict[str, float] = {
+            s.name: s.balance for s in invest_portfolio
+        }
+
         for m in range(n_months):
             year  = self.start_year + m // 12
             month = m % 12 + 1         # 1–12
@@ -188,9 +194,11 @@ class ProjectionEngine:
                     year=year,
                     prior_eff_rate=yr_state.eff_rate_eoy,
                 )
-                # Capture prior-year-end balances for RMD calculation
+                # Capture prior-year-end balances for IRS-correct RMD calculation.
+                # At January 1 the portfolio has not yet grown this month, so
+                # these represent the December 31 snapshot of the prior year.
                 prior_balances = {
-                    _slugify(s.account.name): s.balance
+                    s.name: s.balance
                     for s in invest_portfolio
                 }
 
@@ -259,7 +267,8 @@ class ProjectionEngine:
                     annual_need = monthly_need * 12  # re-estimate for Dec settlement
                     owner_ages  = {"self": self_age_int, "spouse": spouse_age_int}
                     wd_plan = execute_annual_withdrawals(
-                        invest_portfolio, annual_need, owner_ages
+                        invest_portfolio, annual_need, owner_ages,
+                        prior_balances=prior_balances,  # IRS prior year-end balances
                     )
                     # Spread December result across 1 month view
                     wd_row = {

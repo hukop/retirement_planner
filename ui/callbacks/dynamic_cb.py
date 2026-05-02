@@ -22,7 +22,7 @@ def register_dynamic_callbacks(app: dash.Dash):
         ("btn-add-expense", "recurring-expenses-container", _expense_item, {"monthly_amount": 0}),
         ("btn-add-otex", "onetime-expenses-container", _one_time_expense_item, {"amount": 0, "year": 2030}),
         ("btn-add-account", "accounts-container", _investment_item, {"name": "New Account", "balance": 0}),
-        ("btn-add-property", "properties-container", _property_item, {"name": "New Property"}),
+        ("btn-add-property", "properties-container", _property_item, {"name": "New Property", "rental_inflation_rate_pct": 3.0}),
     ]
 
     # Register Add Callbacks
@@ -76,5 +76,17 @@ def register_dynamic_callbacks(app: dash.Dash):
         """,
         Output({"type": "prop-rental-group", "index": dash.MATCH}, "style"),
         Input({"type": "prop-type", "index": dash.MATCH}, "value"),
+        prevent_initial_call=False
+    )
+
+    # ── Real Estate: toggle mortgage details by has-mortgage radio ──
+    app.clientside_callback(
+        """
+        function(has_mortgage) {
+            return {"display": has_mortgage === "yes" ? "block" : "none"};
+        }
+        """,
+        Output({"type": "prop-mortgage-group", "index": dash.MATCH}, "style"),
+        Input({"type": "prop-has-mortgage",    "index": dash.MATCH}, "value"),
         prevent_initial_call=False
     )

@@ -27,14 +27,16 @@ _PROPERTY_TYPES = [
 
 def _property_item(idx: int, prop: dict) -> html.Div:
     """Render a single property block."""
-    prop_type = prop.get("property_type", "primary")
-    
+    prop_type    = prop.get("property_type", "primary")
+    has_mortgage = float(prop.get("mortgage_balance") or 0) > 0
+
     return dynamic_item(
         item_index=idx,
         title=prop.get("name", "New Property"),
         delete_id={"type": "btn-delete-property", "index": idx},
         item_id={"type": "property-item", "index": idx},
         children=[
+            # ── Name + Type ────────────────────────────────────────
             dbc.Row(
                 [
                     dbc.Col(
@@ -58,6 +60,7 @@ def _property_item(idx: int, prop: dict) -> html.Div:
                 ],
                 className="g-3"
             ),
+            # ── Value + Appreciation ────────────────────────────────
             dbc.Row(
                 [
                     dbc.Col(
@@ -83,65 +86,97 @@ def _property_item(idx: int, prop: dict) -> html.Div:
                 ],
                 className="g-3"
             ),
-            
-            # Form header for Mortgage
-            html.Div(
-                "Mortgage Details", 
-                style={"fontSize": "11px", "fontWeight": "600", "letterSpacing": "0.8px", 
-                       "textTransform": "uppercase", "color": "var(--text-muted)", "margin": "16px 0 8px"}
-            ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        input_row(
-                            label="Loan Balance",
-                            input_id={"type": "prop-mortgage-bal", "index": idx},
-                            value=prop.get("mortgage_balance", 0),
-                            prefix="$",
-                            min_val=0,
-                        ),
-                        xs=12, md=3,
-                    ),
-                    dbc.Col(
-                        input_row(
-                            label="Interest Rate",
-                            input_id={"type": "prop-mortgage-rate", "index": idx},
-                            value=prop.get("mortgage_rate_pct", 3.0),
-                            suffix="%",
-                            step=0.125,
-                        ),
-                        xs=12, md=3,
-                    ),
-                    dbc.Col(
-                        input_row(
-                            label="Years Remaining",
-                            input_id={"type": "prop-mortgage-years", "index": idx},
-                            value=prop.get("years_remaining", 30),
-                            suffix=" yrs",
-                        ),
-                        xs=12, md=3,
-                    ),
-                    dbc.Col(
-                        input_row(
-                            label="Monthly Payment",
-                            input_id={"type": "prop-mortgage-payment", "index": idx},
-                            value=prop.get("monthly_payment", 0),
-                            prefix="$",
-                            tooltip="Principal + Interest only."
-                        ),
-                        xs=12, md=3,
-                    ),
-                ],
-                className="g-3"
-            ),
-            
-            # Conditionally render rental fields if we have a rental Property (visually grouped)
+
+            # ── Has Mortgage Toggle ──────────────────────────────
             html.Div(
                 [
                     html.Div(
-                        "Rental Cashflow", 
-                        style={"fontSize": "11px", "fontWeight": "600", "letterSpacing": "0.8px", 
-                               "textTransform": "uppercase", "color": "var(--text-muted)", "margin": "16px 0 8px"}
+                        "Has Mortgage?",
+                        style={"fontSize": "11px", "fontWeight": "600",
+                               "letterSpacing": "0.8px", "textTransform": "uppercase",
+                               "color": "var(--text-muted)", "marginBottom": "8px"},
+                    ),
+                    dbc.RadioItems(
+                        id={"type": "prop-has-mortgage", "index": idx},
+                        options=[
+                            {"label": "  Yes, financed with a mortgage", "value": "yes"},
+                            {"label": "  No, owned free & clear",         "value": "no"},
+                        ],
+                        value="yes" if has_mortgage else "no",
+                        inline=True,
+                        input_class_name="me-1",
+                        style={"fontSize": "13px", "color": "var(--text-secondary)"},
+                    ),
+                ],
+                style={"margin": "16px 0 4px"}
+            ),
+
+            # ── Mortgage Details (conditionally shown) ─────────────────
+            html.Div(
+                [
+                    html.Div(
+                        "Mortgage Details",
+                        style={"fontSize": "11px", "fontWeight": "600",
+                               "letterSpacing": "0.8px", "textTransform": "uppercase",
+                               "color": "var(--text-muted)", "margin": "12px 0 8px"},
+                    ),
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                input_row(
+                                    label="Loan Balance",
+                                    input_id={"type": "prop-mortgage-bal", "index": idx},
+                                    value=prop.get("mortgage_balance", 0),
+                                    prefix="$",
+                                    min_val=0,
+                                ),
+                                xs=12, md=3,
+                            ),
+                            dbc.Col(
+                                input_row(
+                                    label="Interest Rate",
+                                    input_id={"type": "prop-mortgage-rate", "index": idx},
+                                    value=prop.get("mortgage_rate_pct", 3.0),
+                                    suffix="%",
+                                    step=0.125,
+                                ),
+                                xs=12, md=3,
+                            ),
+                            dbc.Col(
+                                input_row(
+                                    label="Years Remaining",
+                                    input_id={"type": "prop-mortgage-years", "index": idx},
+                                    value=prop.get("years_remaining", 30),
+                                    suffix=" yrs",
+                                ),
+                                xs=12, md=3,
+                            ),
+                            dbc.Col(
+                                input_row(
+                                    label="Monthly Payment",
+                                    input_id={"type": "prop-mortgage-payment", "index": idx},
+                                    value=prop.get("monthly_payment", 0),
+                                    prefix="$",
+                                    tooltip="Principal + Interest only."
+                                ),
+                                xs=12, md=3,
+                            ),
+                        ],
+                        className="g-3"
+                    ),
+                ],
+                id={"type": "prop-mortgage-group", "index": idx},
+                style={"display": "block"} if has_mortgage else {"display": "none"},
+            ),
+
+            # ── Rental Cashflow (conditionally shown) ────────────────
+            html.Div(
+                [
+                    html.Div(
+                        "Rental Cashflow",
+                        style={"fontSize": "11px", "fontWeight": "600",
+                               "letterSpacing": "0.8px", "textTransform": "uppercase",
+                               "color": "var(--text-muted)", "margin": "16px 0 8px"},
                     ),
                     dbc.Row(
                         [
@@ -152,7 +187,7 @@ def _property_item(idx: int, prop: dict) -> html.Div:
                                     value=prop.get("monthly_rental_income", 0),
                                     prefix="$",
                                 ),
-                                xs=12, md=6,
+                                xs=12, md=4,
                             ),
                             dbc.Col(
                                 input_row(
@@ -162,12 +197,23 @@ def _property_item(idx: int, prop: dict) -> html.Div:
                                     prefix="$",
                                     tooltip="Property tax, insurance, maintenance, HOA. Exclude mortgage."
                                 ),
-                                xs=12, md=6,
+                                xs=12, md=4,
+                            ),
+                            dbc.Col(
+                                input_row(
+                                    label="Annual Rent/Exp Inflation",
+                                    input_id={"type": "prop-rent-inflation", "index": idx},
+                                    value=prop.get("rental_inflation_rate_pct", 3.0),
+                                    suffix="%",
+                                    step=0.1,
+                                    tooltip="Rate at which gross rent and operating expenses inflate annually."
+                                ),
+                                xs=12, md=4,
                             ),
                         ],
                         className="g-3"
                     )
-                ], 
+                ],
                 style={"display": "block"} if prop_type == "rental" else {"display": "none"},
                 id={"type": "prop-rental-group", "index": idx}
             )

@@ -17,8 +17,8 @@ import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 from dash import html, dcc
 
-from engine.models import PlanProfile
-from engine.projections import run_projection
+from engine.models import PlanProfile, ACCOUNT_TAX_TREATMENT
+from engine.projections import run_projection, _slugify
 from ui.components import (
     section_card, page_header, two_col,
     PLOTLY_DARK_TEMPLATE, retirement_vline, summary_row
@@ -27,24 +27,40 @@ from ui.components import (
 # Shared colour palette mapping for consistency
 _COLORS = {
     # Accounts / buckets
-    "re_equity": "rgba(251,191,36,0.35)",  # Amber fill
-    "tax_deferred": "rgba(167,139,250,0.5)",  # Purple fill
-    "tax_free": "rgba(52,211,153,0.5)",    # Green fill
-    "taxable": "rgba(74,122,247,0.5)",     # Blue fill
-    
+    "re_equity":    "rgba(251,191,36,0.35)",   # Amber fill
+    "tax_deferred": "rgba(167,139,250,0.5)",   # Purple fill
+    "tax_free":     "rgba(52,211,153,0.5)",    # Green fill
+    "taxable":      "rgba(74,122,247,0.5)",    # Blue fill
+
     # Flows
-    "income": "#34d399",   # Green
-    "expense": "#f87171",  # Red
-    "taxes": "#fb923c",    # Orange
-    "deficit": "#f43f5e",  # Rose
-    "surplus": "#2dd4bf",  # Teal
-    
+    "income":  "#34d399",   # Green
+    "expense": "#f87171",   # Red
+    "taxes":   "#fb923c",   # Orange
+    "deficit": "#f43f5e",   # Rose
+    "surplus": "#2dd4bf",   # Teal
+
     # Income Sources
-    "ss": "#4a7af7",       # Blue
-    "rental": "#fbbf24",   # Amber
-    "withdrawals": "#a78bfa", # Purple
-    "salary": "#2dd4bf",   # Teal
+    "ss":          "#4a7af7",   # Blue
+    "rental":      "#fbbf24",   # Amber
+    "withdrawals": "#a78bfa",  # Purple
+    "salary":      "#2dd4bf",  # Teal
 }
+
+
+def _build_slug_tax_map(profile: PlanProfile) -> dict[str, str]:
+    """
+    Build a mapping from DataFrame column name (``bal_{slug}``) to tax
+    treatment string (``"taxable"``, ``"tax_deferred"``, ``"tax_free"``)
+    using the profile's actual account metadata.
+
+    This replaces the previous heuristic that tried to guess account type
+    from slug substrings like '401' or 'roth', which failed for accounts
+    with user-provided names that don't contain those keywords.
+    """
+    return {
+        f"bal_{_slugify(a.name)}": ACCOUNT_TAX_TREATMENT.get(a.account_type, "taxable")
+        for a in profile.accounts
+    }
 
 def _get_projection_data(profile_data: Optional[dict], projection_data: Optional[list]) -> tuple[PlanProfile, pd.DataFrame]:
     """Helper to deserialize or lazy-evaluate projection runs."""
@@ -60,10 +76,10 @@ def _get_projection_data(profile_data: Optional[dict], projection_data: Optional
 # ---------------------------------------------------------------------------
 # Chart 1: Detailed Net Worth Stacked Area
 # ---------------------------------------------------------------------------
-def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
+def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int, profile: PlanProfile) -> go.Figure:
     fig = go.Figure()
     years = annual_df["year"]
-    
+
     # Bottom layer: Real Estate Equity
     if "equity_re_total" in annual_df:
         fig.add_trace(go.Scatter(
@@ -73,17 +89,15 @@ def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
             line=dict(width=0), fillcolor=_COLORS["re_equity"],
             stackgroup="nw"
         ))
-    
-    # Identify account balance columns
+
+    # Build slug → tax_treatment map from the actual profile accounts
+    slug_tax_map = _build_slug_tax_map(profile)
     bal_cols = [c for c in annual_df.columns if c.startswith("bal_")]
-    
-    # We could stack every individual account, but for clarity, we group by tax treatment 
-    # if we knew them. Since we don't have account models mapped directly in the DF 
-    # (only slugs), we'll do best effort by matching slug prefixes.
-    tax_def = [c for c in bal_cols if '401' in c or 'trad' in c]
-    tax_free = [c for c in bal_cols if 'roth' in c or 'hsa' in c]
-    taxable = [c for c in bal_cols if c not in tax_def and c not in tax_free]
-    
+
+    tax_def  = [c for c in bal_cols if slug_tax_map.get(c) == "tax_deferred"]
+    tax_free = [c for c in bal_cols if slug_tax_map.get(c) == "tax_free"]
+    taxable  = [c for c in bal_cols if slug_tax_map.get(c) == "taxable"]
+
     if taxable:
         y_taxable = annual_df[taxable].sum(axis=1)
         fig.add_trace(go.Scatter(
@@ -91,7 +105,7 @@ def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
             mode="lines", fill="tonexty", line=dict(width=0),
             fillcolor=_COLORS["taxable"], stackgroup="nw"
         ))
-        
+
     if tax_def:
         y_def = annual_df[tax_def].sum(axis=1)
         fig.add_trace(go.Scatter(
@@ -99,7 +113,7 @@ def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
             mode="lines", fill="tonexty", line=dict(width=0),
             fillcolor=_COLORS["tax_deferred"], stackgroup="nw"
         ))
-        
+
     if tax_free:
         y_free = annual_df[tax_free].sum(axis=1)
         fig.add_trace(go.Scatter(
@@ -107,7 +121,7 @@ def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
             mode="lines", fill="tonexty", line=dict(width=0),
             fillcolor=_COLORS["tax_free"], stackgroup="nw"
         ))
-        
+
     # Total Line
     fig.add_trace(go.Scatter(
         x=years, y=annual_df["net_worth_eoy"],
@@ -250,7 +264,7 @@ def layout(profile_data: Optional[dict] = None, projection_data: Optional[list] 
     ret_yr = profile.retirement_year_self
     
     # Build charts
-    nw_fig     = _nw_details_chart(annual_df, ret_yr)
+    nw_fig     = _nw_details_chart(annual_df, ret_yr, profile)  # pass profile for correct account classification
     cash_fig   = _cashflow_chart(annual_df, ret_yr)
     draw_fig   = _drawdown_chart(annual_df, ret_yr)
     inflow_fig = _income_sources_chart(annual_df, ret_yr)

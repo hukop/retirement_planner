@@ -188,16 +188,22 @@ def annual_rmd(account_balance: float, age: int) -> float:
 
 
 def compute_rmd_withdrawals(
-    portfolio: list[AccountState],
-    owner_ages: dict[str, int],   # {"self": 74, "spouse": 72}
+    portfolio:      list[AccountState],
+    owner_ages:     dict[str, int],    # {"self": 74, "spouse": 72}
+    prior_balances: dict[str, float] | None = None,
 ) -> list[RMDResult]:
     """
     Compute and execute mandatory RMD withdrawals for all eligible accounts.
 
     Parameters
     ----------
-    portfolio   : list of AccountState objects
-    owner_ages  : mapping from owner key → age *in the projection year*
+    portfolio      : list of AccountState objects
+    owner_ages     : mapping from owner key → age *in the projection year*
+    prior_balances : mapping from account *name* → balance at the prior
+                     year-end.  The IRS requires RMDs to be calculated from
+                     the December 31 balance of the *preceding* year.  If
+                     None (or the account name is missing from the dict),
+                     the current live balance is used as a fallback.
 
     Returns
     -------
@@ -212,7 +218,15 @@ def compute_rmd_withdrawals(
 
         owner = state.account.owner
         age   = owner_ages.get(owner, 0)
-        rmd   = annual_rmd(state.balance, age)
+
+        # IRS rule: RMD = prior year-end balance / distribution period.
+        # Fall back to live balance if prior_balances not supplied.
+        balance_for_rmd = (
+            prior_balances.get(state.name, state.balance)
+            if prior_balances is not None
+            else state.balance
+        )
+        rmd = annual_rmd(balance_for_rmd, age)
 
         if rmd <= 0:
             continue
@@ -258,16 +272,18 @@ def _find_taxable_deposit_account(portfolio: list[AccountState]) -> AccountState
 # Main public API
 # ---------------------------------------------------------------------------
 def execute_annual_withdrawals(
-    portfolio:   list[AccountState],
-    net_need:    float,              # annual dollar need (after income sources)
-    owner_ages:  dict[str, int],     # e.g. {"self": 74, "spouse": 72}
+    portfolio:      list[AccountState],
+    net_need:       float,               # annual dollar need (after income sources)
+    owner_ages:     dict[str, int],      # e.g. {"self": 74, "spouse": 72}
+    prior_balances: dict[str, float] | None = None,
 ) -> AnnualWithdrawalPlan:
     """
     Execute the full annual withdrawal strategy for one projection year.
 
     Steps
     -----
-    1. Compute and force RMDs from all eligible tax-deferred accounts.
+    1. Compute and force RMDs from all eligible tax-deferred accounts,
+       using ``prior_balances`` for the IRS-mandated prior year-end balance.
     2. Accumulate RMD withdrawals as ordinary income.
     3. If RMD total >= net_need: deposit surplus into taxable; done.
     4. Otherwise satisfy remaining need via sequential tier withdrawal.
@@ -275,9 +291,12 @@ def execute_annual_withdrawals(
 
     Parameters
     ----------
-    portfolio   : list of AccountState (modified in place)
-    net_need    : annual net withdrawal needed (expenses − income sources)
-    owner_ages  : dict mapping owner key to integer age this year
+    portfolio      : list of AccountState (modified in place)
+    net_need       : annual net withdrawal needed (expenses − income sources)
+    owner_ages     : dict mapping owner key to integer age this year
+    prior_balances : dict mapping account *name* → December 31 balance of
+                     the *prior* year, used for IRS-correct RMD amounts.
+                     If None, the current live balance is used (less accurate).
 
     Returns
     -------
@@ -291,7 +310,7 @@ def execute_annual_withdrawals(
     shortfall          = 0.0
 
     # ── Step 1: RMDs ────────────────────────────────────────────────────
-    rmd_results   = compute_rmd_withdrawals(portfolio, owner_ages)
+    rmd_results   = compute_rmd_withdrawals(portfolio, owner_ages, prior_balances)
     total_rmd     = sum(r.actual_withdrawn for r in rmd_results)
     rmd_withdrawals = [r.withdrawal for r in rmd_results]
     all_withdrawals.extend(rmd_withdrawals)
@@ -349,32 +368,34 @@ def execute_annual_withdrawals(
 # Monthly wrapper (for projection engine's monthly loop)
 # ---------------------------------------------------------------------------
 def execute_monthly_withdrawals(
-    portfolio:   list[AccountState],
-    monthly_need: float,
-    owner_ages:   dict[str, int],
-    month_of_year: int,             # 1–12: RMDs are only forced in December (month 12)
+    portfolio:      list[AccountState],
+    monthly_need:   float,
+    owner_ages:     dict[str, int],
+    month_of_year:  int,             # 1–12: RMDs are only forced in December (month 12)
+    prior_balances: dict[str, float] | None = None,
 ) -> AnnualWithdrawalPlan:
     """
-    Monthly withdrawal wrapper used by the projection engine.
+    Monthly withdrawal wrapper — alternative entry point for callers that
+    want month-by-month granularity instead of the annual aggregation used
+    by ``ProjectionEngine``.
 
-    RMDs are computed once per year (pulled in equal monthly installments,
-    or lump-sum in December for simplicity).  This function handles the
-    monthly allocation:
+    Note
+    ----
+    The main projection engine does NOT call this function — it inlines
+    the same logic for performance and to allow per-month bookkeeping.
+    This function is provided for external callers (notebooks, unit tests,
+    alternative front-ends) that want a clean monthly API.
 
-    - Months 1–11: withdraw ``monthly_need`` using sequential tier order
-      (no RMD forcing; RMDs are tracked as pre-allocated).
-    - Month 12   : force any-remaining RMD balance and handle excess.
-
-    For MVP simplicity, the projection engine calls
-    ``execute_annual_withdrawals`` once per simulation year (using annual
-    aggregated amounts), then applies the results monthly.  This function
-    is provided as an alternative for callers who run the full monthly loop.
+    RMDs are lump-summed in December only.  ``prior_balances`` should be
+    the prior year-end balances (required for IRS-correct RMD calculation;
+    see ``execute_annual_withdrawals``).
     """
     if month_of_year == 12:
         return execute_annual_withdrawals(
             portfolio=portfolio,
             net_need=monthly_need * 12,
             owner_ages=owner_ages,
+            prior_balances=prior_balances,
         )
     else:
         # Non-December months: simple sequential withdrawal, no RMD forcing

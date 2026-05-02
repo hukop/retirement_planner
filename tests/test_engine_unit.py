@@ -130,15 +130,14 @@ class TestProperty(unittest.TestCase):
         self.assertEqual(prop.net_monthly_rental_income, 1_000)
 
     def test_primary_has_zero_rental_income(self):
+        """Primary residences must return 0 from the model property (gate added)."""
         prop = Property(
             property_type="primary",
             monthly_rental_income=3_000,
             monthly_expenses=800,
             monthly_payment=1_200,
         )
-        self.assertEqual(prop.net_monthly_rental_income, 1_000)
-        # Note: net_monthly_rental_income does NOT gate on property_type in the model;
-        # the projection engine gates it via PropertyState.  This test documents that.
+        self.assertEqual(prop.net_monthly_rental_income, 0)
 
     def test_appreciation_rate_monthly(self):
         prop = Property(appreciation_rate_pct=3.0)
@@ -221,8 +220,7 @@ class TestSocialSecurityTaxability(unittest.TestCase):
         self.assertEqual(ss_taxable_federal(0, 100_000), 0.0)
 
     def test_below_first_threshold(self):
-        # MFJ: combined = 30k + 0.5*10k = 35k < 32k threshold? No, 35k > 32k
-        # Let's use combined < 32k
+        # MFJ: combined = 20k + 0.5*10k = 25k < 32k threshold → 0 taxable
         self.assertEqual(ss_taxable_federal(10_000, 20_000), 0.0)
 
     def test_between_thresholds(self):
@@ -234,6 +232,23 @@ class TestSocialSecurityTaxability(unittest.TestCase):
     def test_above_high_threshold(self):
         taxable = ss_taxable_federal(20_000, 100_000)
         self.assertEqual(taxable, 0.85 * 20_000)
+
+    def test_single_filer_lower_threshold(self):
+        """Single filers hit the 50% zone at $25k combined (not $32k as MFJ)."""
+        # combined = 24k + 0.5*10k = 29k → above single lower threshold 25k
+        taxable_single = ss_taxable_federal(10_000, 24_000, filing_status="single")
+        self.assertGreater(taxable_single, 0,
+                           "Single filer at combined $29k should owe SS tax")
+
+        # Same income MFJ → combined 29k < 32k → should be 0
+        taxable_mfj = ss_taxable_federal(10_000, 24_000, filing_status="married_jointly")
+        self.assertEqual(taxable_mfj, 0.0,
+                         "MFJ at combined $29k should owe no SS tax")
+
+    def test_married_separately_fully_exposed(self):
+        """MFS filers have $0 threshold — up to 85% of SS is immediately taxable."""
+        taxable = ss_taxable_federal(10_000, 0, filing_status="married_separately")
+        self.assertEqual(taxable, 0.85 * 10_000)
 
 
 class TestCalculateTaxes(unittest.TestCase):
@@ -457,6 +472,29 @@ class TestPropertyState(unittest.TestCase):
         total = total_net_monthly_rental_income(portfolio)
         self.assertEqual(total, 500 + 700)
 
+    def test_rental_inflation(self):
+        prop = Property(property_type="rental", monthly_rental_income=2_000,
+                        monthly_expenses=500, monthly_payment=1_000,
+                        mortgage_balance=200_000, years_remaining=30,
+                        rental_inflation_rate_pct=3.0)
+        state = PropertyState.from_property(prop)
+        
+        # Initial state
+        self.assertEqual(state.current_monthly_rent, 2_000)
+        self.assertEqual(state.current_monthly_expenses, 500)
+        self.assertEqual(state.net_monthly_rental_income, 500)
+        
+        # Step one month
+        state.step_month()
+        
+        infl = (1 + 0.03)**(1/12)
+        expected_rent = 2_000 * infl
+        expected_expenses = 500 * infl
+        
+        self.assertAlmostEqual(state.current_monthly_rent, expected_rent, places=5)
+        self.assertAlmostEqual(state.current_monthly_expenses, expected_expenses, places=5)
+        self.assertAlmostEqual(state.net_monthly_rental_income, expected_rent - expected_expenses - 1_000, places=5)
+
     def test_amortization_schedule_length(self):
         prop = Property(mortgage_balance=300_000, mortgage_rate_pct=6.0,
                         monthly_payment=1_798.65, years_remaining=30)
@@ -632,6 +670,43 @@ class TestExecuteAnnualWithdrawals(unittest.TestCase):
         if plan.rmd_excess > 0:
             brokerage = [s for s in portfolio if s.account_type == "brokerage"][0]
             self.assertGreater(brokerage.balance, 5_000)
+
+    def test_rmd_uses_prior_year_balance_not_live_balance(self):
+        """
+        IRS RMD = prior year-end balance / distribution period.
+        If we grow the account 50% during the year and then compute the RMD,
+        the prior_balances dict should override the live balance so the RMD
+        is based on the smaller, pre-growth number.
+        """
+        starting_balance = 265_000
+        accounts = [InvestmentAccount(account_type="401k", balance=starting_balance)]
+        portfolio = build_portfolio(accounts)
+
+        # Simulate 50 % growth (e.g. very good year)
+        state = portfolio[0]
+        state.balance = starting_balance * 1.50   # live balance is now 397,500
+
+        # Prior year-end balance (what the IRS uses)
+        prior_balances = {state.name: starting_balance}
+
+        plan_with_prior = execute_annual_withdrawals(
+            portfolio, net_need=0, owner_ages={"self": 73},
+            prior_balances=prior_balances,
+        )
+
+        # Expected RMD = 265,000 / 26.5 = 10,000 (not 397,500 / 26.5 = 15,000)
+        expected_rmd = starting_balance / 26.5
+        self.assertAlmostEqual(plan_with_prior.total_rmd, expected_rmd, places=0)
+
+        # Without prior_balances, RMD would be based on the higher live balance
+        accounts2 = [InvestmentAccount(account_type="401k", balance=starting_balance)]
+        portfolio2 = build_portfolio(accounts2)
+        portfolio2[0].balance = starting_balance * 1.50
+        plan_without_prior = execute_annual_withdrawals(
+            portfolio2, net_need=0, owner_ages={"self": 73},
+        )
+        # Live-balance RMD should be larger
+        self.assertGreater(plan_without_prior.total_rmd, plan_with_prior.total_rmd)
 
 
 # ---------------------------------------------------------------------------

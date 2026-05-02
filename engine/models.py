@@ -145,6 +145,7 @@ class Property:
     # Rental-specific
     monthly_rental_income: float = 0.0
     monthly_expenses: float = 0.0         # maintenance, insurance, property tax, etc.
+    rental_inflation_rate_pct: float = 3.0
 
     @property
     def monthly_appreciation_rate(self) -> float:
@@ -157,15 +158,27 @@ class Property:
         return self.mortgage_rate_pct / 100 / 12
 
     @property
+    def monthly_rental_inflation_rate(self) -> float:
+        """Monthly compound rate from annual rental inflation."""
+        return (1 + self.rental_inflation_rate_pct / 100) ** (1 / 12) - 1
+
+    @property
     def net_equity(self) -> float:
         """Current equity = value − mortgage balance."""
         return float(self.current_value or 0) - float(self.mortgage_balance or 0)
 
     @property
     def net_monthly_rental_income(self) -> float:
-        """Net rental income = rent − expenses − mortgage payment."""
-        return (float(self.monthly_rental_income or 0) - 
-                float(self.monthly_expenses or 0) - 
+        """Net rental income = rent − expenses − mortgage payment.
+
+        Returns 0 for primary residences — only rental properties generate
+        income.  Use ``PropertyState.net_monthly_rental_income`` during a
+        simulation run (it also accounts for the live mortgage payment).
+        """
+        if self.property_type != "rental":
+            return 0.0
+        return (float(self.monthly_rental_income or 0) -
+                float(self.monthly_expenses or 0) -
                 float(self.monthly_payment or 0))
 
 

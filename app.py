@@ -19,7 +19,9 @@ app = Dash(
         dbc.themes.DARKLY,
         "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap",
     ],
-    suppress_callback_exceptions=True,
+    suppress_callback_exceptions=True,  # Required: pattern-matching callbacks (ALL/MATCH)
+                                        # reference component IDs that don't exist at startup
+                                        # (dynamic lists render IDs only after data loads).
     title="Retirement Planner",
     update_title="Calculating...",
 )

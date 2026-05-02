@@ -51,6 +51,9 @@ class PropertyState:
     mortgage_balance:  float   # remaining loan balance
     is_paid_off:       bool    # True once mortgage balance reaches 0
     payoff_year:       int | None  # calendar year the mortgage was paid off
+    
+    current_monthly_rent:     float
+    current_monthly_expenses: float
 
     # ------------------------------------------------------------------ #
     # Factory                                                             #
@@ -64,6 +67,8 @@ class PropertyState:
             mortgage_balance=prop.mortgage_balance,
             is_paid_off=paid_off,
             payoff_year=None,
+            current_monthly_rent=float(prop.monthly_rental_income or 0),
+            current_monthly_expenses=float(prop.monthly_expenses or 0),
         )
 
     # ------------------------------------------------------------------ #
@@ -97,7 +102,7 @@ class PropertyState:
         """
         if self.prop.property_type != "rental":
             return 0.0
-        return self.prop.monthly_rental_income - self.prop.monthly_expenses - self.monthly_payment
+        return self.current_monthly_rent - self.current_monthly_expenses - self.monthly_payment
 
     # ------------------------------------------------------------------ #
     # Monthly operations                                                  #
@@ -167,12 +172,18 @@ class PropertyState:
 
     def step_month(self, current_year: int | None = None) -> dict:
         """
-        Advance simulation by one month: appreciate + amortize.
+        Advance simulation by one month: appreciate + amortize + inflate rent.
 
         Returns a combined summary dict for the month.
         """
         appreciation = self.appreciate()
         amort        = self.amortize(current_year=current_year)
+        
+        # Inflate rent & expenses
+        rent_infl_rate = self.prop.monthly_rental_inflation_rate
+        self.current_monthly_rent     *= (1 + rent_infl_rate)
+        self.current_monthly_expenses *= (1 + rent_infl_rate)
+        
         return {
             "appreciation":     round(appreciation, 2),
             "net_equity":       round(self.net_equity, 2),

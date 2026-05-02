@@ -158,7 +158,14 @@ CA_STANDARD_DEDUCTION: dict[FilingStatus, float] = {
 # ---------------------------------------------------------------------------
 # Social Security taxability (federal only; CA does not tax SS)
 # ---------------------------------------------------------------------------
-SS_TAXABLE_THRESHOLDS_MFJ = (32_000, 44_000)  # 0 %, 50 %, 85 % thresholds
+# IRS combined-income thresholds: (lower, upper) → 0 %, 50 %, 85 % taxable.
+# Married Filing Separately (living with spouse): $0/$0 means up to 85% is
+# immediately taxable (IRS rules — most unfavorable treatment).
+SS_TAXABLE_THRESHOLDS: dict[str, tuple[float, float]] = {
+    "married_jointly":    (32_000, 44_000),
+    "married_separately": (0,      0),       # MFS with spouse: all SS exposed
+    "single":             (25_000, 34_000),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -207,19 +214,20 @@ def ss_taxable_federal(
     Uses the IRS "combined income" formula:
         combined = other_income + 0.5 * ss_income
 
-    For MFJ:
-      combined < $32k  → 0 % taxable
-      $32k–$44k        → 50 % of (combined − $32k) taxable
-      > $44k           → min(85 % of ss, 4500 + 0.85*(combined−44k))
-
-    For simplicity, MVP uses the MFJ thresholds for all filing statuses.
-    (Single/MFS thresholds are $25k/$34k — post-MVP refinement.)
+    Thresholds by filing status:
+      MFJ:  combined < $32k → 0%; $32k–$44k → 50%; > $44k → up to 85%
+      Single: $25k / $34k thresholds (same tier structure)
+      MFS (with spouse): $0 threshold — up to 85% immediately taxable
     """
     if ss_income <= 0:
         return 0.0
 
-    # Use MFJ thresholds for MVP (most users are married jointly)
-    low, high = SS_TAXABLE_THRESHOLDS_MFJ
+    low, high = SS_TAXABLE_THRESHOLDS.get(filing_status, SS_TAXABLE_THRESHOLDS["married_jointly"])
+
+    # Special case: MFS living with spouse — up to 85 % is taxable with no
+    # income-based phase-in (IRS: combined income threshold is $0).
+    if low == 0 and high == 0:
+        return min(0.85 * ss_income, ss_income)
 
     combined = other_income + 0.5 * ss_income
 

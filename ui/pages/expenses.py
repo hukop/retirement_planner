@@ -33,13 +33,22 @@ _CATEGORY_OPTIONS = [
 def _expense_item(idx: int, exp: dict) -> html.Div:
     """Render a single recurring expense block."""
     cat_label = next((c["label"] for c in _CATEGORY_OPTIONS if c["value"] == exp.get("category", "other")), "Other")
-    
+    # Use the stored name if it differs from the category slug; otherwise show the category label
+    display_name = exp.get("name") or cat_label
+
     return dynamic_item(
         item_index=idx,
-        title=f"{cat_label} Expenses",
+        title=display_name,
         delete_id={"type": "btn-delete-expense", "index": idx},
         item_id={"type": "expense-item", "index": idx},
         children=[
+            input_row(
+                label="Name",
+                input_id={"type": "expense-name", "index": idx},
+                input_type="text",
+                value=exp.get("name", ""),
+                placeholder=f"{cat_label} (optional label)",
+            ),
             dbc.Row(
                 [
                     dbc.Col(

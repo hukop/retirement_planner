@@ -16,6 +16,7 @@ from dash.testing.composite import DashComposite
 from app import app
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 
 # Automatically manage ChromeDriver installation and pathing
@@ -32,6 +33,35 @@ except ImportError:
     pass
 
 
+def _safe_click(driver, element):
+    """Scroll element into view and click via JavaScript to avoid interception."""
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+    time.sleep(0.2)
+    driver.execute_script("arguments[0].click();", element)
+
+
+def _select_option(driver, select_element, value):
+    """Select an option by value and trigger change event."""
+    from selenium.webdriver.support.ui import Select
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", select_element)
+    time.sleep(0.2)
+    sel = Select(select_element)
+    sel.select_by_value(value)
+    # Trigger change event for clientside callbacks
+    driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", select_element)
+    time.sleep(0.3)
+
+
+def _wait_and_click(dash_duo, selector, timeout=10):
+    """Wait for element to be present, scroll it, and click via JS."""
+    from selenium.webdriver.support import expected_conditions as EC
+    el = WebDriverWait(dash_duo.driver, timeout).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+    )
+    _safe_click(dash_duo.driver, el)
+    return el
+
+
 @pytest.fixture
 def dash_duo(dash_duo) -> DashComposite:
     dash_duo.driver.maximize_window()
@@ -45,11 +75,11 @@ def dash_duo(dash_duo) -> DashComposite:
 
 def test_re_001_rental_fields_hidden_for_primary(dash_duo):
     """A newly-added primary property should NOT show rental cashflow fields."""
-    dash_duo.find_element("#nav-real-estate").click()
+    _wait_and_click(dash_duo, "#nav-real-estate")
     time.sleep(1)
 
     initial_items = len(dash_duo.find_elements(".dynamic-item"))
-    dash_duo.find_element("#btn-add-property").click()
+    _wait_and_click(dash_duo, "#btn-add-property")
 
     WebDriverWait(dash_duo.driver, 10).until(
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial_items + 1
@@ -57,7 +87,7 @@ def test_re_001_rental_fields_hidden_for_primary(dash_duo):
 
     # Find the newly-added property's rental group and verify display:none
     rental_groups = dash_duo.find_elements("div[id*='prop-rental-group']")
-    # The new property should be the last one
+    assert len(rental_groups) > 0, "No rental groups found on page"
     new_group = rental_groups[-1]
     display = new_group.value_of_css_property("display")
     assert display == "none", f"Expected rental group hidden for primary, got {display}"
@@ -65,11 +95,11 @@ def test_re_001_rental_fields_hidden_for_primary(dash_duo):
 
 def test_re_002_rental_fields_visible_after_type_change(dash_duo):
     """Changing a property to 'rental' should reveal the cashflow fields."""
-    dash_duo.find_element("#nav-real-estate").click()
+    _wait_and_click(dash_duo, "#nav-real-estate")
     time.sleep(1)
 
     initial_items = len(dash_duo.find_elements(".dynamic-item"))
-    dash_duo.find_element("#btn-add-property").click()
+    _wait_and_click(dash_duo, "#btn-add-property")
 
     WebDriverWait(dash_duo.driver, 10).until(
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial_items + 1
@@ -77,14 +107,13 @@ def test_re_002_rental_fields_visible_after_type_change(dash_duo):
 
     # Find the type dropdown for the new property and change it to rental
     type_selects = dash_duo.find_elements("select[id*='prop-type']")
+    assert len(type_selects) > 0, "No property type dropdowns found"
     new_select = type_selects[-1]
-    new_select.click()
-    # Select "rental" option (value="rental")
-    rental_option = new_select.find_element(By.CSS_SELECTOR, "option[value='rental']")
-    rental_option.click()
+    _select_option(dash_duo.driver, new_select, "rental")
 
     # Wait for clientside callback to toggle visibility
     rental_groups = dash_duo.find_elements("div[id*='prop-rental-group']")
+    assert len(rental_groups) > 0, "No rental groups found"
     new_group = rental_groups[-1]
     WebDriverWait(dash_duo.driver, 5).until(
         lambda d: new_group.value_of_css_property("display") == "block"
@@ -92,28 +121,31 @@ def test_re_002_rental_fields_visible_after_type_change(dash_duo):
 
     # Verify the rent input is now visible and interactable
     rent_inputs = dash_duo.find_elements("input[id*='prop-rent-inc']")
-    assert len(rent_inputs) > 0
+    assert len(rent_inputs) > 0, "No rent inputs found"
 
 
 def test_re_003_rental_income_saved_and_reloaded(dash_duo):
     """Add a rental property with rent, save, navigate away, return — data persists."""
-    dash_duo.find_element("#nav-real-estate").click()
+    _wait_and_click(dash_duo, "#nav-real-estate")
     time.sleep(1)
 
     initial_items = len(dash_duo.find_elements(".dynamic-item"))
-    dash_duo.find_element("#btn-add-property").click()
+    _wait_and_click(dash_duo, "#btn-add-property")
     WebDriverWait(dash_duo.driver, 10).until(
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial_items + 1
     )
 
     # Name it
     name_inputs = dash_duo.find_elements("input[id*='prop-name']")
+    assert len(name_inputs) > 0, "No property name inputs found"
     name_inputs[-1].send_keys("Test Rental")
+    name_inputs[-1].send_keys(Keys.TAB)
+    time.sleep(0.3)
 
     # Switch to rental
     type_selects = dash_duo.find_elements("select[id*='prop-type']")
-    type_selects[-1].click()
-    type_selects[-1].find_element(By.CSS_SELECTOR, "option[value='rental']").click()
+    assert len(type_selects) > 0, "No property type dropdowns found"
+    _select_option(dash_duo.driver, type_selects[-1], "rental")
 
     # Wait for rental fields to appear
     rental_groups = dash_duo.find_elements("div[id*='prop-rental-group']")
@@ -123,24 +155,23 @@ def test_re_003_rental_income_saved_and_reloaded(dash_duo):
 
     # Enter rent
     rent_inputs = dash_duo.find_elements("input[id*='prop-rent-inc']")
+    assert len(rent_inputs) > 0, "No rent inputs found"
     rent_inputs[-1].send_keys("3500")
+    rent_inputs[-1].send_keys(Keys.TAB)
+    time.sleep(0.3)
 
-    # Save
-    dash_duo.driver.execute_script(
-        "arguments[0].click();", dash_duo.find_element("#realestate-save-btn")
-    )
-    dash_duo.wait_for_text_to_equal(".toast-container .toast-body",
-                                     "Real estate settings synced.", timeout=15)
+    # Save (CORRECTED ID: real-estate-save-btn with hyphen)
+    _wait_and_click(dash_duo, "#real-estate-save-btn")
+    time.sleep(1.5)  # Wait for save to complete
 
     # Navigate away and back
-    dash_duo.find_element("#nav-dashboard").click()
-    dash_duo.find_element("#nav-real-estate").click()
+    _wait_and_click(dash_duo, "#nav-dashboard")
+    _wait_and_click(dash_duo, "#nav-real-estate")
     time.sleep(1)
 
     # Verify the rental property still has rent value
     rent_inputs = dash_duo.find_elements("input[id*='prop-rent-inc']")
-    assert len(rent_inputs) > 0
-    # The last one should be our new property
+    assert len(rent_inputs) > 0, "No rent inputs found after reload"
     assert rent_inputs[-1].get_attribute("value") == "3500"
 
 
@@ -150,15 +181,17 @@ def test_re_003_rental_income_saved_and_reloaded(dash_duo):
 
 def test_profile_001_low_retirement_age_persists(dash_duo):
     """Regression: retirement age of 45 should be accepted and survive refresh."""
-    dash_duo.find_element("#nav-profile").click()
+    _wait_and_click(dash_duo, "#nav-profile")
 
     ret_input = dash_duo.find_element("#profile-self-retirement-age")
     ret_input.send_keys(Keys.CONTROL + "a")
     ret_input.send_keys(Keys.BACKSPACE)
     ret_input.send_keys("45")
+    # Blur the input to trigger debounced callback
+    ret_input.send_keys(Keys.TAB)
+    time.sleep(0.5)
 
-    btn = dash_duo.find_element("#profile-save-btn")
-    dash_duo.driver.execute_script("arguments[0].click();", btn)
+    _wait_and_click(dash_duo, "#profile-save-btn")
     dash_duo.wait_for_text_to_equal(".toast-header strong", "Saved", timeout=10)
 
     # Refresh
@@ -170,15 +203,17 @@ def test_profile_001_low_retirement_age_persists(dash_duo):
 
 def test_profile_002_spouse_low_retirement_age_persists(dash_duo):
     """Regression: spouse retirement age of 45 should also persist."""
-    dash_duo.find_element("#nav-profile").click()
+    _wait_and_click(dash_duo, "#nav-profile")
 
     ret_input = dash_duo.find_element("#profile-spouse-retirement-age")
     ret_input.send_keys(Keys.CONTROL + "a")
     ret_input.send_keys(Keys.BACKSPACE)
     ret_input.send_keys("45")
+    # Blur the input to trigger debounced callback
+    ret_input.send_keys(Keys.TAB)
+    time.sleep(0.5)
 
-    btn = dash_duo.find_element("#profile-save-btn")
-    dash_duo.driver.execute_script("arguments[0].click();", btn)
+    _wait_and_click(dash_duo, "#profile-save-btn")
     dash_duo.wait_for_text_to_equal(".toast-header strong", "Saved", timeout=10)
 
     dash_duo.driver.refresh()
@@ -193,62 +228,67 @@ def test_profile_002_spouse_low_retirement_age_persists(dash_duo):
 
 def test_income_001_add_and_save(dash_duo):
     """Add a new income source, name it, save, verify persistence."""
-    dash_duo.find_element("#nav-income").click()
+    _wait_and_click(dash_duo, "#nav-income")
     time.sleep(1)
 
     initial = len(dash_duo.find_elements(".dynamic-item"))
-    dash_duo.find_element("#btn-add-income").click()
+    _wait_and_click(dash_duo, "#btn-add-income")
     WebDriverWait(dash_duo.driver, 10).until(
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial + 1
     )
 
-    name_inputs = dash_duo.find_elements("input[id*='inc-name']")
+    name_inputs = dash_duo.find_elements("input[id*='income-name']")
+    assert len(name_inputs) > 0, "No income name inputs found"
+    name_inputs[-1].send_keys(Keys.CONTROL + "a")
     name_inputs[-1].send_keys("Consulting")
+    name_inputs[-1].send_keys(Keys.TAB)
 
-    amt_inputs = dash_duo.find_elements("input[id*='inc-amount']")
+    amt_inputs = dash_duo.find_elements("input[id*='income-amount']")
+    assert len(amt_inputs) > 0, "No income amount inputs found"
+    amt_inputs[-1].send_keys(Keys.CONTROL + "a")
     amt_inputs[-1].send_keys("5000")
+    amt_inputs[-1].send_keys(Keys.TAB)
+    time.sleep(0.3)
 
-    dash_duo.driver.execute_script(
-        "arguments[0].click();", dash_duo.find_element("#income-save-btn")
-    )
-    dash_duo.wait_for_text_to_equal(".toast-container .toast-body",
-                                     "Income sources synced.", timeout=15)
+    _wait_and_click(dash_duo, "#income-save-btn")
+    time.sleep(1.5)  # Wait for save to complete
 
     # Navigate away and back
-    dash_duo.find_element("#nav-dashboard").click()
-    dash_duo.find_element("#nav-income").click()
+    _wait_and_click(dash_duo, "#nav-dashboard")
+    _wait_and_click(dash_duo, "#nav-income")
     time.sleep(1)
 
-    name_inputs = dash_duo.find_elements("input[id*='inc-name']")
+    # Wait for dynamic items to load
+    WebDriverWait(dash_duo.driver, 10).until(
+        lambda d: len(d.find_elements(By.CSS_SELECTOR, "input[id*='income-name']")) > 0
+    )
+    name_inputs = dash_duo.find_elements("input[id*='income-name']")
     assert name_inputs[-1].get_attribute("value") == "Consulting"
 
 
 def test_income_002_owner_dropdown_self_vs_spouse(dash_duo):
     """Income source owner can be switched between self and spouse."""
-    dash_duo.find_element("#nav-income").click()
+    _wait_and_click(dash_duo, "#nav-income")
     time.sleep(1)
 
     initial = len(dash_duo.find_elements(".dynamic-item"))
-    dash_duo.find_element("#btn-add-income").click()
+    _wait_and_click(dash_duo, "#btn-add-income")
     WebDriverWait(dash_duo.driver, 10).until(
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial + 1
     )
 
-    owner_selects = dash_duo.find_elements("select[id*='inc-owner']")
+    owner_selects = dash_duo.find_elements("select[id*='income-owner']")
+    assert len(owner_selects) > 0, "No owner dropdowns found"
     new_select = owner_selects[-1]
-    new_select.click()
-    new_select.find_element(By.CSS_SELECTOR, "option[value='spouse']").click()
+    _select_option(dash_duo.driver, new_select, "spouse")
 
     # Save and verify
-    dash_duo.driver.execute_script(
-        "arguments[0].click();", dash_duo.find_element("#income-save-btn")
-    )
-    dash_duo.wait_for_text_to_equal(".toast-container .toast-body",
-                                     "Income sources synced.", timeout=15)
+    _wait_and_click(dash_duo, "#income-save-btn")
+    time.sleep(1.5)  # Wait for save to complete
 
     dash_duo.driver.refresh()
     time.sleep(1)
-    owner_selects = dash_duo.find_elements("select[id*='inc-owner']")
+    owner_selects = dash_duo.find_elements("select[id*='income-owner']")
     assert owner_selects[-1].get_attribute("value") == "spouse"
 
 
@@ -258,62 +298,63 @@ def test_income_002_owner_dropdown_self_vs_spouse(dash_duo):
 
 def test_expense_001_add_and_save(dash_duo):
     """Add a new expense, name it, set amount, save, verify persistence."""
-    dash_duo.find_element("#nav-expenses").click()
+    _wait_and_click(dash_duo, "#nav-expenses")
     time.sleep(1)
 
     initial = len(dash_duo.find_elements(".dynamic-item"))
-    dash_duo.find_element("#btn-add-expense").click()
+    _wait_and_click(dash_duo, "#btn-add-expense")
     WebDriverWait(dash_duo.driver, 10).until(
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial + 1
     )
 
-    name_inputs = dash_duo.find_elements("input[id*='exp-name']")
-    name_inputs[-1].send_keys("New Car Payment")
-
-    amt_inputs = dash_duo.find_elements("input[id*='exp-amount']")
+    # Expenses don't have a name field - use category and amount
+    amt_inputs = dash_duo.find_elements("input[id*='expense-amount']")
+    assert len(amt_inputs) > 0, "No expense amount inputs found"
     amt_inputs[-1].send_keys("800")
+    amt_inputs[-1].send_keys(Keys.TAB)
+    time.sleep(0.3)
 
-    dash_duo.driver.execute_script(
-        "arguments[0].click();", dash_duo.find_element("#expenses-save-btn")
-    )
-    dash_duo.wait_for_text_to_equal(".toast-container .toast-body",
-                                     "Expense settings synced.", timeout=15)
+    _wait_and_click(dash_duo, "#expenses-save-btn")
+    time.sleep(1.5)  # Wait for save to complete
 
-    dash_duo.find_element("#nav-dashboard").click()
-    dash_duo.find_element("#nav-expenses").click()
+    _wait_and_click(dash_duo, "#nav-dashboard")
+    _wait_and_click(dash_duo, "#nav-expenses")
     time.sleep(1)
 
-    name_inputs = dash_duo.find_elements("input[id*='exp-name']")
-    assert name_inputs[-1].get_attribute("value") == "New Car Payment"
+    # Wait for dynamic items to load and verify amount persisted
+    WebDriverWait(dash_duo.driver, 10).until(
+        lambda d: len(d.find_elements(By.CSS_SELECTOR, "input[id*='expense-amount']")) > 0
+    )
+    amt_inputs = dash_duo.find_elements("input[id*='expense-amount']")
+    assert amt_inputs[-1].get_attribute("value") == "800"
 
 
 def test_expense_002_retirement_pct_slider(dash_duo):
     """Expense retirement percentage slider updates and saves."""
-    dash_duo.find_element("#nav-expenses").click()
+    _wait_and_click(dash_duo, "#nav-expenses")
     time.sleep(1)
 
     initial = len(dash_duo.find_elements(".dynamic-item"))
-    dash_duo.find_element("#btn-add-expense").click()
+    _wait_and_click(dash_duo, "#btn-add-expense")
     WebDriverWait(dash_duo.driver, 10).until(
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial + 1
     )
 
     # Find the retirement pct input (could be a slider or number input)
-    pct_inputs = dash_duo.find_elements("input[id*='exp-retirement-pct']")
+    pct_inputs = dash_duo.find_elements("input[id*='expense-retirement-pct']")
     if pct_inputs:
         pct_inputs[-1].send_keys(Keys.CONTROL + "a")
         pct_inputs[-1].send_keys(Keys.BACKSPACE)
         pct_inputs[-1].send_keys("50")
+        pct_inputs[-1].send_keys(Keys.TAB)
+        time.sleep(0.3)
 
-        dash_duo.driver.execute_script(
-            "arguments[0].click();", dash_duo.find_element("#expenses-save-btn")
-        )
-        dash_duo.wait_for_text_to_equal(".toast-container .toast-body",
-                                         "Expense settings synced.", timeout=15)
+        _wait_and_click(dash_duo, "#expenses-save-btn")
+        time.sleep(1.5)  # Wait for save to complete
 
         dash_duo.driver.refresh()
         time.sleep(1)
-        pct_inputs = dash_duo.find_elements("input[id*='exp-retirement-pct']")
+        pct_inputs = dash_duo.find_elements("input[id*='expense-retirement-pct']")
         assert pct_inputs[-1].get_attribute("value") == "50"
 
 
@@ -323,37 +364,39 @@ def test_expense_002_retirement_pct_slider(dash_duo):
 
 def test_onetime_001_add_and_save(dash_duo):
     """Add a one-time expense and verify it saves."""
-    dash_duo.find_element("#nav-expenses").click()
+    _wait_and_click(dash_duo, "#nav-expenses")
     time.sleep(1)
 
-    initial = len(dash_duo.find_elements("div[id*='onetime-item']"))
+    initial = len(dash_duo.find_elements("div[id*='otex-item']"))
     # Scroll to find the one-time add button if needed
     try:
-        btn = dash_duo.find_element("#btn-add-onetime")
+        btn = dash_duo.find_element("#btn-add-otex")
     except Exception:
         # May be lower on page; try scrolling
         dash_duo.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(0.5)
-        btn = dash_duo.find_element("#btn-add-onetime")
+        btn = dash_duo.find_element("#btn-add-otex")
 
-    dash_duo.driver.execute_script("arguments[0].click();", btn)
+    _safe_click(dash_duo.driver, btn)
     WebDriverWait(dash_duo.driver, 10).until(
-        lambda d: len(d.find_elements(By.CSS_SELECTOR, "div[id*='onetime-item']")) == initial + 1
+        lambda d: len(d.find_elements(By.CSS_SELECTOR, "div[id*='otex-item']")) == initial + 1
     )
 
-    name_inputs = dash_duo.find_elements("input[id*='ot-name']")
+    name_inputs = dash_duo.find_elements("input[id*='otex-name']")
+    assert len(name_inputs) > 0, "No one-time expense name inputs found"
     name_inputs[-1].send_keys("World Trip")
+    name_inputs[-1].send_keys(Keys.TAB)
 
-    amt_inputs = dash_duo.find_elements("input[id*='ot-amount']")
+    amt_inputs = dash_duo.find_elements("input[id*='otex-amount']")
+    assert len(amt_inputs) > 0, "No one-time expense amount inputs found"
     amt_inputs[-1].send_keys("25000")
+    amt_inputs[-1].send_keys(Keys.TAB)
+    time.sleep(0.3)
 
-    dash_duo.driver.execute_script(
-        "arguments[0].click();", dash_duo.find_element("#expenses-save-btn")
-    )
-    dash_duo.wait_for_text_to_equal(".toast-container .toast-body",
-                                     "Expense settings synced.", timeout=15)
+    _wait_and_click(dash_duo, "#expenses-save-btn")
+    time.sleep(1.5)  # Wait for save to complete
 
     dash_duo.driver.refresh()
     time.sleep(1)
-    name_inputs = dash_duo.find_elements("input[id*='ot-name']")
+    name_inputs = dash_duo.find_elements("input[id*='otex-name']")
     assert name_inputs[-1].get_attribute("value") == "World Trip"

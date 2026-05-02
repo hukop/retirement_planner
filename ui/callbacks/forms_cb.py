@@ -10,9 +10,9 @@ from dash import Input, Output, State, ALL
 import dash_bootstrap_components as dbc
 from typing import Optional
 
-def _toast(msg: str) -> dbc.Toast:
+def _toast(msg: str, header: str = "Saved", icon: str = "success") -> dbc.Toast:
     return dbc.Toast(
-        msg, header="Saved", icon="success", duration=3000, is_open=True
+        msg, header=header, icon=icon, duration=3000, is_open=True
     )
 
 def register_forms_callbacks(app: dash.Dash):
@@ -71,6 +71,23 @@ def register_forms_callbacks(app: dash.Dash):
 
         return profile_data, _toast("Profile settings updated locally.")
 
+    # ── Reset Profile ────────────────────────────────────────────────────
+    @app.callback(
+        Output("profile-store", "data", allow_duplicate=True),
+        Output("toast-container", "children", allow_duplicate=True),
+        Input("profile-reset-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_profile(n_clicks):
+        """Reset the profile store to the built-in sample plan."""
+        if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+        from engine.models import PlanProfile
+        sample = PlanProfile.sample()
+        return sample.to_dict(), _toast(
+            "Profile reset to sample defaults.", header="Reset", icon="info"
+        )
+
     # ── Reactive UI Updates (Profile Summary) ───────────────────────────
     @app.callback(
         Output("profile-summary-container", "children"),
@@ -124,34 +141,41 @@ def register_forms_callbacks(app: dash.Dash):
         Input("expenses-save-btn", "n_clicks"),
         State("profile-store", "data"),
         # Recurring expenses
-        State({"type": "expense-category", "index": ALL}, "value"),
-        State({"type": "expense-amount", "index": ALL}, "value"),
+        State({"type": "expense-name",       "index": ALL}, "value"),
+        State({"type": "expense-category",   "index": ALL}, "value"),
+        State({"type": "expense-amount",     "index": ALL}, "value"),
         State({"type": "expense-retire-pct", "index": ALL}, "value"),
-        State({"type": "expense-inflation", "index": ALL}, "value"),
-        State({"type": "expense-item", "index": ALL}, "style"),
+        State({"type": "expense-inflation",  "index": ALL}, "value"),
+        State({"type": "expense-item",       "index": ALL}, "style"),
         # One-time expenses
-        State({"type": "otex-name", "index": ALL}, "value"),
-        State({"type": "otex-amount", "index": ALL}, "value"),
-        State({"type": "otex-year", "index": ALL}, "value"),
+        State({"type": "otex-name",      "index": ALL}, "value"),
+        State({"type": "otex-amount",    "index": ALL}, "value"),
+        State({"type": "otex-year",      "index": ALL}, "value"),
         State({"type": "otex-inflation", "index": ALL}, "value"),
-        State({"type": "otex-item", "index": ALL}, "style"),
+        State({"type": "otex-item",      "index": ALL}, "style"),
         prevent_initial_call=True
     )
-    def sync_expenses(n_clicks, profile_data, rec_cats, rec_amts, rec_pcts, rec_infs, rec_styles,
-                                            otex_names, otex_amts, otex_years, otex_infs, otex_styles):
+    def sync_expenses(
+        n_clicks, profile_data,
+        rec_names, rec_cats, rec_amts, rec_pcts, rec_infs, rec_styles,
+        otex_names, otex_amts, otex_years, otex_infs, otex_styles,
+    ):
         if not dash.ctx.triggered_id or not profile_data:
             raise dash.exceptions.PreventUpdate
 
-        # Regular Expenses
+        # Regular Expenses — name field is now read from the form directly
         expenses = []
         for i in range(len(rec_cats)):
             if rec_styles[i] and rec_styles[i].get("display") == "none":
-                continue # Skip soft-deleted items
+                continue  # Skip soft-deleted items
 
+            # Fall back to category if the user left the name blank
+            name = (rec_names[i] or "").strip() or rec_cats[i] or "Expense"
             expenses.append({
-                "name": rec_cats[i] or "Expense",
+                "name": name,
                 "category": rec_cats[i], "monthly_amount": rec_amts[i] or 0.0,
-                "retirement_pct": float(rec_pcts[i] or 100.0), "inflation_adjusted": bool(rec_infs[i])
+                "retirement_pct": float(rec_pcts[i] or 100.0),
+                "inflation_adjusted": bool(rec_infs[i]),
             })
 
         one_times = []
@@ -213,16 +237,21 @@ def register_forms_callbacks(app: dash.Dash):
         State({"type": "prop-type", "index": ALL}, "value"),
         State({"type": "prop-value", "index": ALL}, "value"),
         State({"type": "prop-appreciation", "index": ALL}, "value"),
+        State({"type": "prop-has-mortgage", "index": ALL}, "value"),
         State({"type": "prop-mortgage-bal", "index": ALL}, "value"),
-        State({"type": "prop-mortgage-payment", "index": ALL}, "value"),
         State({"type": "prop-mortgage-rate", "index": ALL}, "value"),
         State({"type": "prop-mortgage-years", "index": ALL}, "value"),
+        State({"type": "prop-mortgage-payment", "index": ALL}, "value"),
         State({"type": "prop-rent-inc", "index": ALL}, "value"),
         State({"type": "prop-rent-exp", "index": ALL}, "value"),
+        State({"type": "prop-rent-inflation", "index": ALL}, "value"),
         State({"type": "property-item", "index": ALL}, "style"),
         prevent_initial_call=True
     )
-    def sync_real_estate(n_clicks, profile_data, names, types, vals, apprs, morts, pmts, rates, yrs, rents, exps, styles):
+    def sync_real_estate(
+        n_clicks, profile_data,
+        names, types, vals, apprs, has_morts, morts, rates, yrs, pmts, rents, exps, rent_infls, styles
+    ):
         if not dash.ctx.triggered_id or not profile_data:
             raise dash.exceptions.PreventUpdate
 
@@ -234,9 +263,13 @@ def register_forms_callbacks(app: dash.Dash):
             properties.append({
                 "name": names[i], "property_type": types[i],
                 "current_value": float(vals[i] or 0), "appreciation_rate_pct": float(apprs[i] or 0),
-                "mortgage_balance": float(morts[i] or 0), "monthly_payment": float(pmts[i] or 0),
-                "mortgage_rate_pct": float(rates[i] or 0), "years_remaining": int(yrs[i] or 0),
-                "monthly_rental_income": float(rents[i] or 0), "monthly_expenses": float(exps[i] or 0)
+                "mortgage_balance": float(morts[i] or 0) if has_morts[i] == "yes" else 0.0,
+                "monthly_payment": float(pmts[i] or 0) if has_morts[i] == "yes" else 0.0,
+                "mortgage_rate_pct": float(rates[i] or 0) if has_morts[i] == "yes" else 0.0,
+                "years_remaining": int(yrs[i] or 0) if has_morts[i] == "yes" else 0,
+                "monthly_rental_income": float(rents[i] or 0),
+                "monthly_expenses": float(exps[i] or 0),
+                "rental_inflation_rate_pct": float(rent_infls[i] or 3.0)
             })
         profile_data["properties"] = properties
         return profile_data, _toast("Property ledger synced.")
