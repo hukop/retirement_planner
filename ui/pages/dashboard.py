@@ -33,7 +33,7 @@ from dash import html
 from engine.models import PlanProfile
 from engine.projections import run_projection
 from ui.components import (
-    metric_card, section_card, page_header, four_col,
+    metric_card, section_card, four_col,
     PLOTLY_DARK_TEMPLATE, retirement_vline, summary_row, info_badge,
 )
 
@@ -396,11 +396,8 @@ def layout(
 
     return html.Div(
         [
-            page_header(
-                "Dashboard",
-                subtitle=f"{profile.plan_name}  ·  {profile.self_person.name} & {profile.spouse.name}",
-                icon="📊",
-            ),
+            html.P(f"{profile.plan_name}  ·  {profile.self_person.name} & {profile.spouse.name}",
+                   style={"fontSize": "14px", "color": "var(--text-secondary)", "marginBottom": "24px"}),
             card_row,
             html.Div(style={"height": "8px"}),
             chart_row,

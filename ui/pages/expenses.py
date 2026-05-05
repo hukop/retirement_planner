@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 
 from engine.models import PlanProfile
 from ui.components import (
-    section_card, page_header, input_row, select_row, slider_row,
+    section_card, input_row, select_row, slider_row,
     two_col, summary_row, dynamic_item, add_button, empty_state, PLOTLY_DARK_TEMPLATE
 )
 
@@ -214,6 +214,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     recurring_section = section_card(
         title="🛒  Recurring Expenses",
+        subtitle="Estimate your current and future living costs to determine your required nest egg.",
         children=[
             html.Div(expenses_list, id="recurring-expenses-container"),
             add_button("Add Recurring Expense", btn_id="btn-add-expense")
@@ -262,11 +263,6 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     return html.Div(
         [
-            page_header(
-                "Expenses",
-                subtitle="Map out your current spending and estimate how it changes during retirement.",
-                icon="🛒",
-            ),
             two_col(recurring_section, html.Div([chart_section, onetime_section]), left_width=7),
             strip,
             html.Div(

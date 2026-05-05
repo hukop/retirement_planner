@@ -108,6 +108,7 @@ def metric_card(
 def section_card(
     title:    str,
     children: Any,
+    subtitle: str = "",
     icon:     str = "",
     card_id:  Optional[str] = None,
 ) -> html.Div:
@@ -122,28 +123,20 @@ def section_card(
     kwargs: dict = {"className": "section-card"}
     if card_id:
         kwargs["id"] = card_id
+        
+    title_block = html.Div(header_content, className="section-card-title")
+    if subtitle:
+        title_block = html.Div([
+            title_block,
+            html.P(subtitle, className="section-card-subtitle")
+        ])
 
     return html.Div(
         [
-            html.Div(header_content, className="section-card-title"),
+            title_block,
             html.Div(children),
         ],
         **kwargs,
-    )
-
-
-# ---------------------------------------------------------------------------
-# page_header
-# ---------------------------------------------------------------------------
-def page_header(title: str, subtitle: str = "", icon: str = "") -> html.Div:
-    """Top-of-page title block."""
-    title_content = f"{icon}  {title}" if icon else title
-    return html.Div(
-        [
-            html.H1(title_content, className="page-title"),
-            html.P(subtitle, className="page-subtitle") if subtitle else html.Div(),
-        ],
-        className="page-header",
     )
 
 
@@ -184,7 +177,6 @@ def input_row(
         className="input-label",
     )
 
-    # Build input kwargs
     inp_kwargs: dict = {
         "id":          input_id,
         "type":        input_type,
@@ -203,7 +195,7 @@ def input_row(
     if step is not None:
         inp_kwargs["step"] = step
 
-    inp = dcc.Input(**inp_kwargs)
+    inp = dbc.Input(**inp_kwargs)
 
     # Wrap with prefix / suffix if provided
     if prefix or suffix:

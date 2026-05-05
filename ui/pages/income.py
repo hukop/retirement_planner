@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 
 from engine.models import PlanProfile, IncomeSource
 from ui.components import (
-    section_card, page_header, input_row, select_row,
+    section_card, input_row, select_row,
     two_col, summary_row, dynamic_item, add_button, empty_state, PLOTLY_DARK_TEMPLATE
 )
 
@@ -206,6 +206,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     income_section = section_card(
         title="💼  Income Sources",
+        subtitle="Track your salaries, pensions, and review your Social Security strategy.",
         children=[
             html.Div(incomes_list, id="income-sources-container"),
             add_button("Add Income Source", btn_id="btn-add-income")
@@ -238,11 +239,6 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     return html.Div(
         [
-            page_header(
-                "Income Sources",
-                subtitle="Track your salaries, pensions, and review your Social Security strategy.",
-                icon="💼",
-            ),
             two_col(income_section, ss_section, left_width=7),
             strip,
             html.Div(

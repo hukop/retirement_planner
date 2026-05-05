@@ -221,8 +221,9 @@ def register_forms_callbacks(app: dash.Dash):
             accounts.append({
                 "name": names[i], "account_type": types[i], "owner": owners[i],
                 "balance": float(bals[i] or 0), "annual_return_pct": float(rets[i] or 0),
-                "annual_contribution": float(contribs[i] or 0), "cost_basis": float(costs[i] or 0),
-                "employer_match": float(matches[i] or 0)
+                "annual_contribution": float(contribs[i] or 0), 
+                "cost_basis": float(costs[i] or 0) if types[i] == "brokerage" else 0.0,
+                "employer_match": float(matches[i] or 0) if types[i] == "401k" else 0.0
             })
         profile_data["accounts"] = accounts
         return profile_data, _toast("Portfolio structure synced.")

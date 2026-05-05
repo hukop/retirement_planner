@@ -23,7 +23,7 @@ from dash import html
 
 from engine.models import PlanProfile, Person
 from ui.components import (
-    section_card, page_header, input_row, slider_row, select_row,
+    section_card, input_row, slider_row, select_row,
     two_col, divider, summary_row, info_badge,
 )
 
@@ -271,11 +271,8 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     return html.Div(
         [
-            page_header(
-                "Profile & Settings",
-                subtitle="Enter your personal details. All data is saved locally — never leaves your computer.",
-                icon="👤",
-            ),
+            html.P("Enter your personal details. All data is saved locally — never leaves your computer.",
+                   style={"fontSize": "14px", "color": "var(--text-secondary)", "marginBottom": "24px"}),
             people_row,
             html.Div(style={"height": "4px"}),
             _global_settings(profile),

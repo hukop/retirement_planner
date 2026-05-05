@@ -79,6 +79,30 @@ def register_dynamic_callbacks(app: dash.Dash):
         prevent_initial_call=False
     )
 
+    # ── Investments: toggle cost basis by account type ──
+    app.clientside_callback(
+        """
+        function(acc_type) {
+            return {"display": acc_type === "brokerage" ? "block" : "none"};
+        }
+        """,
+        Output({"type": "acc-cost-basis-group", "index": dash.MATCH}, "style"),
+        Input({"type": "acc-type", "index": dash.MATCH}, "value"),
+        prevent_initial_call=False
+    )
+
+    # ── Investments: toggle employer match by account type ──
+    app.clientside_callback(
+        """
+        function(acc_type) {
+            return {"display": acc_type === "401k" ? "block" : "none"};
+        }
+        """,
+        Output({"type": "acc-match-group", "index": dash.MATCH}, "style"),
+        Input({"type": "acc-type", "index": dash.MATCH}, "value"),
+        prevent_initial_call=False
+    )
+
     # ── Real Estate: toggle mortgage details by has-mortgage radio ──
     app.clientside_callback(
         """
@@ -88,5 +112,55 @@ def register_dynamic_callbacks(app: dash.Dash):
         """,
         Output({"type": "prop-mortgage-group", "index": dash.MATCH}, "style"),
         Input({"type": "prop-has-mortgage",    "index": dash.MATCH}, "value"),
+        prevent_initial_call=False
+    )
+
+    # ── Settings State Sync (Density & Theme) ──
+    # Unified callback to avoid Dash circular dependency errors and combine classes
+    app.clientside_callback(
+        """
+        function(density_drop, theme_drop, density_store, theme_store) {
+            const ctx = dash_clientside.callback_context;
+            
+            // Determine current actual values (fallback to defaults)
+            let current_density = density_store || density_drop || "comfortable";
+            let current_theme = theme_store || theme_drop || "classic";
+            
+            if (ctx.triggered && ctx.triggered.length) {
+                const triggered_id = ctx.triggered[0].prop_id;
+                
+                if (triggered_id === 'layout-density-select.value') {
+                    current_density = density_drop || "comfortable";
+                } else if (triggered_id === 'density-store.data') {
+                    current_density = density_store || "comfortable";
+                } else if (triggered_id === 'layout-theme-select.value') {
+                    current_theme = theme_drop || "classic";
+                } else if (triggered_id === 'theme-store.data') {
+                    current_theme = theme_store || "classic";
+                }
+            }
+            
+            const combined_class = "density-" + current_density + " theme-" + current_theme;
+            
+            // Return values for (density_drop, density_store, theme_drop, theme_store, app-shell_class)
+            // But only update stores/dropdowns if they don't match our current state
+            const r_density_drop = (density_drop !== current_density) ? current_density : window.dash_clientside.no_update;
+            const r_density_store = (density_store !== current_density) ? current_density : window.dash_clientside.no_update;
+            
+            const r_theme_drop = (theme_drop !== current_theme) ? current_theme : window.dash_clientside.no_update;
+            const r_theme_store = (theme_store !== current_theme) ? current_theme : window.dash_clientside.no_update;
+            
+            return [r_density_drop, r_density_store, r_theme_drop, r_theme_store, combined_class];
+        }
+        """,
+        Output("layout-density-select", "value"),
+        Output("density-store", "data"),
+        Output("layout-theme-select", "value"),
+        Output("theme-store", "data"),
+        Output("app-shell", "className"),
+        Input("layout-density-select", "value"),
+        Input("layout-theme-select", "value"),
+        Input("density-store", "data"),
+        Input("theme-store", "data"),
         prevent_initial_call=False
     )

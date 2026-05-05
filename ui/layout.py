@@ -90,6 +90,36 @@ def _sidebar() -> html.Div:
                 [
                     html.Div("PLAN", className="nav-section-label"),
                     *[_nav_link(href, icon, label) for href, icon, label in _NAV_ITEMS],
+                    
+                    html.Div("SETTINGS", className="nav-section-label", style={"marginTop": "20px"}),
+                    html.Div(
+                        dbc.Select(
+                            id="layout-density-select",
+                            options=[
+                                {"label": "Comfortable View", "value": "comfortable"},
+                                {"label": "Compact View", "value": "compact"},
+                                {"label": "Dense View", "value": "dense"},
+                            ],
+                            value="comfortable",
+                            size="sm",
+                            style={"backgroundColor": "var(--bg-input)", "color": "var(--text-secondary)", "borderColor": "var(--border-input)", "fontSize": "12px", "padding": "4px 8px"}
+                        ),
+                        style={"padding": "0 12px", "marginBottom": "12px"}
+                    ),
+                    html.Div(
+                        dbc.Select(
+                            id="layout-theme-select",
+                            options=[
+                                {"label": "Classic Dashboard", "value": "classic"},
+                                {"label": "Notion (Minimalist)", "value": "notion"},
+                                {"label": "Spreadsheet (Dense)", "value": "spreadsheet"},
+                            ],
+                            value="classic",
+                            size="sm",
+                            style={"backgroundColor": "var(--bg-input)", "color": "var(--text-secondary)", "borderColor": "var(--border-input)", "fontSize": "12px", "padding": "4px 8px"}
+                        ),
+                        style={"padding": "0 12px", "marginBottom": "12px"}
+                    ),
                 ],
                 id="sidebar-nav",
             ),
@@ -170,6 +200,8 @@ def create_layout() -> html.Div:
             # Global data stores
             dcc.Store(id="profile-store",    data=initial_profile, storage_type="session"),
             dcc.Store(id="projection-store", data=None,            storage_type="session"),
+            dcc.Store(id="density-store",                          storage_type="local"),
+            dcc.Store(id="theme-store",                            storage_type="local"),
 
             # Toast notification area
             html.Div(id="toast-container", style={

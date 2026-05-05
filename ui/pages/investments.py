@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 
 from engine.models import PlanProfile
 from ui.components import (
-    section_card, page_header, input_row, select_row,
+    section_card, input_row, select_row,
     two_col, summary_row, dynamic_item, add_button, empty_state, PLOTLY_DARK_TEMPLATE
 )
 
@@ -116,24 +116,32 @@ def _investment_item(idx: int, acc: dict) -> html.Div:
             dbc.Row(
                 [
                     dbc.Col(
-                        input_row(
-                            label="Cost Basis",
-                            input_id={"type": "acc-cost-basis", "index": idx},
-                            value=acc.get("cost_basis", 0),
-                            prefix="$",
-                            min_val=0,
-                            tooltip="Only required for taxable brokerage accounts to calculate capital gains properly."
+                        html.Div(
+                            input_row(
+                                label="Cost Basis",
+                                input_id={"type": "acc-cost-basis", "index": idx},
+                                value=acc.get("cost_basis", 0),
+                                prefix="$",
+                                min_val=0,
+                                tooltip="Only required for taxable brokerage accounts to calculate capital gains properly."
+                            ),
+                            id={"type": "acc-cost-basis-group", "index": idx},
+                            style={"display": "block"} if acc_type == "brokerage" else {"display": "none"}
                         ),
                         xs=12, md=4,
                     ),
                     dbc.Col(
-                        input_row(
-                            label="Employer Match %",
-                            input_id={"type": "acc-match", "index": idx},
-                            value=acc.get("employer_match_pct", 0),
-                            suffix="%",
-                            step=0.1,
-                            tooltip="Employer 401k match based on your salary."
+                        html.Div(
+                            input_row(
+                                label="Employer Match %",
+                                input_id={"type": "acc-match", "index": idx},
+                                value=acc.get("employer_match_pct", 0),
+                                suffix="%",
+                                step=0.1,
+                                tooltip="Employer 401k match based on your salary."
+                            ),
+                            id={"type": "acc-match-group", "index": idx},
+                            style={"display": "block"} if acc_type == "401k" else {"display": "none"}
                         ),
                         xs=12, md=4,
                     ),
@@ -202,6 +210,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     accounts_section = section_card(
         title="📈  Investment Accounts",
+        subtitle="Map out your stock portfolios, IRAs, and savings mapping toward your nest egg.",
         children=[
             html.Div(accounts_list, id="accounts-container"),
             add_button("Add Account", btn_id="btn-add-account")
@@ -232,11 +241,6 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     return html.Div(
         [
-            page_header(
-                "Investments",
-                subtitle="Map out your stock portfolios, IRAs, and savings mapping toward your nest egg.",
-                icon="📈",
-            ),
             two_col(accounts_section, chart_section, left_width=8),
             strip,
             html.Div(

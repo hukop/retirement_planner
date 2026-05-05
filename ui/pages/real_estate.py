@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 
 from engine.models import PlanProfile
 from ui.components import (
-    section_card, page_header, input_row, select_row,
+    section_card, input_row, select_row,
     two_col, summary_row, dynamic_item, add_button, empty_state, PLOTLY_DARK_TEMPLATE
 )
 
@@ -286,6 +286,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     props_section = section_card(
         title="🏠  Real Estate Portfolio",
+        subtitle="Track primary residences and cash-flowing rental properties.",
         children=[
             html.Div(props_list, id="properties-container"),
             add_button("Add Property", btn_id="btn-add-property")
@@ -321,11 +322,6 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     return html.Div(
         [
-            page_header(
-                "Real Estate",
-                subtitle="Track primary residences and cash-flowing rental properties.",
-                icon="🏠",
-            ),
             two_col(props_section, chart_section, left_width=8),
             strip,
             html.Div(

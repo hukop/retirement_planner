@@ -264,6 +264,13 @@ body {
   gap: 8px;
 }
 
+.section-card-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: -12px;
+  margin-bottom: 20px;
+}
+
 .section-card-title .card-icon {
   font-size: 16px;
 }
@@ -425,6 +432,17 @@ input:focus {
   border-color: var(--border-card) !important;
 }
 
+
+
+/* Input Group Addons ($, %) */
+.input-group-text {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-input) !important;
+  color: var(--text-secondary) !important;
+  font-size: 13px !important;
+  padding: 6px 10px !important;
+}
+
 /* Select / Dropdown */
 .Select-control,
 .Select-menu-outer,
@@ -441,6 +459,21 @@ input:focus {
 }
 
 .Select-value-label {
+  color: var(--text-primary) !important;
+}
+
+/* Checklists */
+.dash-checklist label {
+  color: var(--text-secondary) !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.dash-checklist label:hover {
   color: var(--text-primary) !important;
 }
 
@@ -748,3 +781,336 @@ input:focus {
   #page-content { padding: 16px; }
   .metric-card-value { font-size: 20px; }
 }
+
+/* =========================================================================
+   17. Fixes
+   ========================================================================= */
+/* Hide native number input spinners which can render poorly in dark mode */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+  display: none !important;
+}
+input[type="number"] {
+  -moz-appearance: textfield !important; /* Firefox */
+}
+
+/* =========================================================================
+   18. Layout Density Modes
+   ========================================================================= */
+
+/* Compact Mode */
+.density-compact .section-card {
+  padding: 18px;
+  margin-bottom: 16px;
+}
+.density-compact .dynamic-item {
+  padding: 14px 14px 10px;
+  margin-bottom: 8px;
+}
+.density-compact .input-row {
+  margin-bottom: 12px;
+}
+.density-compact .form-control,
+.density-compact .Select-control,
+.density-compact .dash-input,
+.density-compact input[type="number"],
+.density-compact input[type="text"] {
+  padding: 5px 10px !important;
+}
+.density-compact .input-group-text {
+  padding: 5px 8px !important;
+}
+.density-compact .input-label {
+  margin-bottom: 4px;
+}
+
+/* Dense Mode */
+.density-dense .section-card {
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.density-dense .dynamic-item {
+  padding: 10px 10px 6px;
+  margin-bottom: 6px;
+}
+.density-dense .input-row {
+  margin-bottom: 8px;
+}
+.density-dense .form-control,
+.density-dense .Select-control,
+.density-dense .dash-input,
+.density-dense input[type="number"],
+.density-dense input[type="text"] {
+  padding: 3px 8px !important;
+  height: 28px !important;
+}
+.density-dense .input-group-text {
+  padding: 3px 6px !important;
+  height: 28px !important;
+}
+.density-dense .input-label {
+  margin-bottom: 2px;
+}
+
+/* =========================================================================
+   19. Theme: Notion (Minimalist Document Flow)
+   ========================================================================= */
+
+/* Layout Transformation: Top Navigation */
+#app-shell.theme-notion {
+  flex-direction: column;
+  background-color: #f9fafb !important;
+  color: #111827 !important;
+}
+
+#app-shell.theme-notion #sidebar {
+  position: static;
+  width: 100%;
+  height: 60px;
+  min-height: 60px;
+  flex-direction: row;
+  align-items: center;
+  border-right: none;
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff !important;
+}
+
+#app-shell.theme-notion #sidebar-header {
+  border-bottom: none;
+  padding: 0 20px;
+}
+
+#app-shell.theme-notion #sidebar-nav {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 0 20px;
+  overflow: visible;
+}
+
+#app-shell.theme-notion .nav-section-label {
+  display: none;
+}
+
+#app-shell.theme-notion .nav-item-link {
+  margin-bottom: 0;
+  margin-right: 15px;
+  color: #6b7280;
+}
+
+#app-shell.theme-notion .nav-item-link:hover,
+#app-shell.theme-notion .nav-item-link.active {
+  background: transparent;
+  color: #111827;
+  border-color: transparent;
+  box-shadow: none;
+  border-bottom: 2px solid #111827;
+  border-radius: 0;
+  transform: none;
+}
+
+/* Hide the topbar since we have a top nav now */
+#app-shell.theme-notion #topbar {
+  display: none;
+}
+
+#app-shell.theme-notion #main-content {
+  margin-left: 0;
+  background: #f9fafb;
+}
+
+#app-shell.theme-notion #page-content {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+
+/* Element Styling */
+#app-shell.theme-notion .section-card {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin-bottom: 40px;
+}
+
+#app-shell.theme-notion .section-card-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+  border-bottom: none;
+  margin-bottom: 10px;
+}
+
+#app-shell.theme-notion .dynamic-item {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+#app-shell.theme-notion .form-control,
+#app-shell.theme-notion .dash-input,
+#app-shell.theme-notion input {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  border-radius: 0 !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  padding-left: 0 !important;
+}
+
+#app-shell.theme-notion .form-control:focus,
+#app-shell.theme-notion input:focus {
+  border-bottom: 1px solid #3b82f6 !important;
+}
+
+#app-shell.theme-notion .input-group-text {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  border-radius: 0 !important;
+  color: #6b7280 !important;
+}
+
+#app-shell.theme-notion .input-label {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+#app-shell.theme-notion .page-title {
+  color: #111827;
+  font-size: 32px;
+}
+
+#app-shell.theme-notion .page-subtitle {
+  color: #6b7280;
+}
+
+#app-shell.theme-notion .section-card-subtitle {
+  margin-top: 0;
+  margin-bottom: 24px;
+}
+
+/* Dropdown fixes for Notion */
+#app-shell.theme-notion .Select-control {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  border-radius: 0 !important;
+}
+
+#app-shell.theme-notion .Select-value-label {
+  color: #111827 !important;
+}
+
+/* =========================================================================
+   20. Theme: Spreadsheet (Dense Data Grid)
+   ========================================================================= */
+
+#app-shell.theme-spreadsheet {
+  background-color: #1e1e1e !important;
+  color: #d4d4d4 !important;
+  font-family: var(--font-mono) !important;
+}
+
+#app-shell.theme-spreadsheet #sidebar {
+  background: #252526 !important;
+  border-right: 1px solid #333333;
+}
+
+#app-shell.theme-spreadsheet #main-content {
+  background: #1e1e1e;
+}
+
+#app-shell.theme-spreadsheet #topbar {
+  background: #2d2d30 !important;
+  border-bottom: 1px solid #333333;
+}
+
+#app-shell.theme-spreadsheet #page-content {
+  max-width: none; /* Full width */
+}
+
+/* Element Styling */
+#app-shell.theme-spreadsheet .section-card {
+  background: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 8px;
+}
+
+#app-shell.theme-spreadsheet .section-card-title {
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: #ffffff;
+  border-bottom: 1px solid #333333;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+}
+
+#app-shell.theme-spreadsheet .dynamic-item {
+  background: #252526;
+  border: 1px solid #333333;
+  border-radius: 0;
+  padding: 4px;
+  margin-bottom: 4px;
+}
+
+#app-shell.theme-spreadsheet .dynamic-item-header {
+  margin-bottom: 4px;
+}
+
+#app-shell.theme-spreadsheet .dynamic-item-title {
+  font-size: 12px;
+  color: #9cdcfe;
+}
+
+#app-shell.theme-spreadsheet .form-control,
+#app-shell.theme-spreadsheet .dash-input,
+#app-shell.theme-spreadsheet input {
+  background: #1e1e1e !important;
+  border: 1px solid #3c3c3c !important;
+  border-radius: 0 !important;
+  color: #ce9178 !important; /* Numbers look like strings/values */
+  font-family: var(--font-mono) !important;
+  box-shadow: none !important;
+}
+
+#app-shell.theme-spreadsheet .form-control:focus,
+#app-shell.theme-spreadsheet input:focus {
+  border: 1px solid #007fd4 !important;
+}
+
+#app-shell.theme-spreadsheet .input-group-text {
+  background: #2d2d30 !important;
+  border: 1px solid #3c3c3c !important;
+  border-radius: 0 !important;
+  color: #858585 !important;
+  font-family: var(--font-mono) !important;
+}
+
+#app-shell.theme-spreadsheet .input-label {
+  color: #858585;
+  font-size: 11px;
+  margin-bottom: 2px;
+  font-family: var(--font-mono);
+}
+
+#app-shell.theme-spreadsheet .btn-primary-custom {
+  border-radius: 0;
+  font-family: var(--font-mono);
+}
+
+#app-shell.theme-spreadsheet .section-card-subtitle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: -4px;
+  margin-bottom: 12px;
+  color: #858585;
+}
+

@@ -20,7 +20,7 @@ from dash import html, dcc
 from engine.models import PlanProfile, ACCOUNT_TAX_TREATMENT
 from engine.projections import run_projection, _slugify
 from ui.components import (
-    section_card, page_header, two_col,
+    section_card, two_col,
     PLOTLY_DARK_TEMPLATE, retirement_vline, summary_row
 )
 
@@ -291,11 +291,8 @@ def layout(profile_data: Optional[dict] = None, projection_data: Optional[list] 
         [
             html.Div(
                 [
-                    page_header(
-                        "Life Projections",
-                        subtitle="Detailed analytics engine runs your data out to life expectancy.",
-                        icon="🔮",
-                    ),
+                    html.P("Detailed analytics engine runs your data out to life expectancy.",
+                           style={"fontSize": "14px", "color": "var(--text-secondary)", "marginBottom": "24px"}),
                     # We can float the controls right aligned in advanced UI, but putting it below header for now
                     controls,
                 ]
