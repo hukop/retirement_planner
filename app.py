@@ -3,11 +3,19 @@ Retirement Planner — Personal retirement planning web app.
 Built with Python + Dash. All data stays local.
 """
 
+import diskcache
 import dash
-from dash import Dash
+from dash import Dash, DiskcacheManager
 import dash_bootstrap_components as dbc
 
 from ui.layout import create_layout, register_routing_callback
+
+
+# ---------------------------------------------------------------------------
+# Background callback manager (required for progress-reporting callbacks)
+# ---------------------------------------------------------------------------
+_cache = diskcache.Cache("./.cache")
+background_callback_manager = DiskcacheManager(_cache)
 
 
 # ---------------------------------------------------------------------------
@@ -24,6 +32,7 @@ app = Dash(
                                         # (dynamic lists render IDs only after data loads).
     title="Retirement Planner",
     update_title="Calculating...",
+    background_callback_manager=background_callback_manager,
 )
 
 server = app.server  # Expose for production WSGI servers if ever needed
@@ -46,4 +55,3 @@ register_all_callbacks(app)
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     app.run(debug=True, port=8050)
-

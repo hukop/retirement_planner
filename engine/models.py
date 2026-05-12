@@ -15,6 +15,34 @@ from typing import Literal, Optional
 
 
 # ---------------------------------------------------------------------------
+# Monte Carlo configuration
+# ---------------------------------------------------------------------------
+@dataclass
+class MonteCarloConfig:
+    """
+    Configuration for Monte Carlo simulation runs.
+
+    All return parameters are expressed as annualized percentages.
+    The engine converts them to monthly figures internally.
+    """
+
+    # Number of independent simulation trials to run
+    num_trials: int = 1000
+
+    # Equity return distribution (applied to all equity-like accounts:
+    # 401k, trad_ira, roth_ira, roth_401k, brokerage)
+    mean_return_pct: float = 7.0       # geometric mean annual return (%)
+    std_dev_pct: float = 15.0          # annual standard deviation (%, S&P historical ~15-16%)
+
+    # Bond/cash-like return distribution (applied to savings, HSA)
+    bond_mean_return_pct: float = 4.0  # annual mean for low-volatility accounts
+    bond_std_dev_pct: float = 5.0      # annual std dev for low-volatility accounts
+
+    # Optional fixed seed for reproducibility (None = random each run)
+    random_seed: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
 # Person
 # ---------------------------------------------------------------------------
 @dataclass
@@ -208,6 +236,9 @@ class PlanProfile:
     accounts: list[InvestmentAccount] = field(default_factory=list)
     properties: list[Property] = field(default_factory=list)
 
+    # Monte Carlo configuration
+    monte_carlo: MonteCarloConfig = field(default_factory=MonteCarloConfig)
+
     # ------------------------------------------------------------------
     # Derived helpers
     # ------------------------------------------------------------------
@@ -290,6 +321,7 @@ class PlanProfile:
             one_time_expenses=[safe_load(OneTimeExpense, o) for o in data.get("one_time_expenses", []) if isinstance(o, dict)],
             accounts=[safe_load(InvestmentAccount, a) for a in data.get("accounts", []) if isinstance(a, dict)],
             properties=[safe_load(Property, p) for p in data.get("properties", []) if isinstance(p, dict)],
+            monte_carlo=safe_load(MonteCarloConfig, data.get("monte_carlo", {})),
         )
 
     @classmethod

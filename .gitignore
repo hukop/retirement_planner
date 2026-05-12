@@ -28,3 +28,4 @@ data/profiles/*.json
 
 # Dash
 .dash_jupyter/
+.cache/

@@ -116,13 +116,34 @@ class ProjectionEngine:
     -----
     ::
 
+        # Deterministic (default)
         engine = ProjectionEngine(profile)
+        monthly_df, annual_df = engine.run()
+
+        # Monte Carlo trial — inject a pre-generated return sequence
+        engine = ProjectionEngine(profile, return_overrides=monthly_rates)
         monthly_df, annual_df = engine.run()
     """
 
-    def __init__(self, profile: PlanProfile):
-        self.profile    = profile
-        self.start_year = date.today().year
+    def __init__(
+        self,
+        profile: PlanProfile,
+        return_overrides: Optional[np.ndarray] = None,
+    ):
+        """
+        Parameters
+        ----------
+        profile         : the retirement plan to simulate
+        return_overrides: optional 1-D NumPy array of monthly return rates,
+                          length == total simulation months.  When provided,
+                          all equity accounts grow at this rate each month
+                          instead of using their own configured return rate.
+                          When None (default), each account uses its own rate
+                          (deterministic projection).
+        """
+        self.profile          = profile
+        self.start_year       = date.today().year
+        self.return_overrides = return_overrides
 
     # ------------------------------------------------------------------ #
     # Public API                                                          #
@@ -232,7 +253,13 @@ class ProjectionEngine:
                 month_contrib = 0.0
 
             # ── 5. Grow all accounts ──────────────────────────────────────
-            month_growth = grow_all(invest_portfolio)
+            if self.return_overrides is not None:
+                # Monte Carlo path: use the pre-generated return for this month
+                monthly_rate = float(self.return_overrides[m])
+                month_growth = grow_all(invest_portfolio, monthly_rate_override=monthly_rate)
+            else:
+                # Deterministic path: each account uses its own configured rate
+                month_growth = grow_all(invest_portfolio)
 
             # ── 6. Tax estimate (monthly, based on prior-year eff rate) ────
             annual_income_est = (

@@ -67,8 +67,12 @@ def _fmt_years(n: int) -> str:
     return f"{n} yr{'' if n == 1 else 's'}"
 
 
-def _get_projection(profile_data: Optional[dict], projection_data: Optional[list]) -> tuple:
-    """Return (profile, annual_df) — run engine if projection_data is missing."""
+def _get_projection(
+    profile_data: Optional[dict],
+    projection_data: Optional[list],
+    mc_data: Optional[dict] = None,
+) -> tuple:
+    """Return (profile, annual_df, mc_success_rate_or_None) — run engine if projection_data is missing."""
     if profile_data:
         profile = PlanProfile.from_dict(profile_data)
     else:
@@ -80,13 +84,18 @@ def _get_projection(profile_data: Optional[dict], projection_data: Optional[list
     else:
         _, annual_df = run_projection(profile)
 
-    return profile, annual_df
+    # Extract MC success rate if results exist
+    mc_success_rate = None
+    if mc_data and isinstance(mc_data, dict):
+        mc_success_rate = mc_data.get("success_rate")
+
+    return profile, annual_df, mc_success_rate
 
 
 # ---------------------------------------------------------------------------
 # KPI card values
 # ---------------------------------------------------------------------------
-def _compute_kpis(profile: PlanProfile, annual_df) -> dict:
+def _compute_kpis(profile: PlanProfile, annual_df, mc_success_rate: Optional[float] = None) -> dict:
     today      = date.today().year
     retire_yr  = profile.retirement_year_self
     years_left = max(0, retire_yr - today)
@@ -117,12 +126,13 @@ def _compute_kpis(profile: PlanProfile, annual_df) -> dict:
         is_success    = False
 
     return {
-        "years_left":    years_left,
-        "nest_egg":      nest_egg,
-        "monthly_income":avg_income,
-        "success_label": success_label,
-        "is_success":    is_success,
-        "retire_yr":     retire_yr,
+        "years_left":       years_left,
+        "nest_egg":         nest_egg,
+        "monthly_income":   avg_income,
+        "success_label":    success_label,
+        "is_success":       is_success,
+        "retire_yr":        retire_yr,
+        "mc_success_rate":  mc_success_rate,
     }
 
 
@@ -302,12 +312,13 @@ def _quick_actions() -> html.Div:
 def layout(
     profile_data: Optional[dict] = None,
     projection_data: Optional[list] = None,
+    mc_data: Optional[dict] = None,
 ) -> html.Div:
     """Render the full dashboard page."""
     import plotly.io as pio
 
-    profile, annual_df = _get_projection(profile_data, projection_data)
-    kpis = _compute_kpis(profile, annual_df)
+    profile, annual_df, mc_success_rate = _get_projection(profile_data, projection_data, mc_data)
+    kpis = _compute_kpis(profile, annual_df, mc_success_rate)
 
     # ── KPI cards ─────────────────────────────────────────────────────────
     card_row = four_col(
@@ -335,12 +346,30 @@ def layout(
             accent="amber",
             card_id="kpi-monthly-income",
         ),
+        # Plan Success card: show MC probability if available, else deterministic
         metric_card(
-            title="Plan Success",
-            value=kpis["success_label"],
-            subtitle="Money lasts until..." if not kpis["is_success"] else "Funds outlast plan",
-            icon="✅" if kpis["is_success"] else "⚠️",
-            accent="green" if kpis["is_success"] else "amber",
+            title="Success Probability" if kpis["mc_success_rate"] is not None else "Plan Success",
+            value=(
+                f"{kpis['mc_success_rate'] * 100:.1f}%"
+                if kpis["mc_success_rate"] is not None
+                else kpis["success_label"]
+            ),
+            subtitle=(
+                "Monte Carlo result — click 🎲 for details"
+                if kpis["mc_success_rate"] is not None
+                else ("Money lasts until..." if not kpis["is_success"] else "Funds outlast plan")
+            ),
+            icon=(
+                "🎯" if kpis["mc_success_rate"] is not None
+                else ("✅" if kpis["is_success"] else "⚠️")
+            ),
+            accent=(
+                ("green" if kpis["mc_success_rate"] >= 0.80
+                 else "amber" if kpis["mc_success_rate"] >= 0.60
+                 else "red")
+                if kpis["mc_success_rate"] is not None
+                else ("green" if kpis["is_success"] else "amber")
+            ),
             card_id="kpi-plan-success",
         ),
     )

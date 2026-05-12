@@ -19,9 +19,9 @@ from __future__ import annotations
 from typing import Optional
 
 import dash_bootstrap_components as dbc
-from dash import html
+from dash import html, dcc
 
-from engine.models import PlanProfile, Person
+from engine.models import PlanProfile, Person, MonteCarloConfig
 from ui.components import (
     section_card, input_row, slider_row, select_row,
     two_col, divider, summary_row, info_badge,
@@ -33,7 +33,7 @@ from ui.components import (
 # ---------------------------------------------------------------------------
 _FILING_OPTIONS = [
     {"label": "Married Filing Jointly",   "value": "married_jointly"},
-    {"label": "Married Filing Separately","value": "married_separately"},
+    {"label": "Married Filing Separately", "value": "married_separately"},
     {"label": "Single",                   "value": "single"},
 ]
 
@@ -225,6 +225,73 @@ def _global_settings(profile: PlanProfile) -> html.Div:
 
 
 # ---------------------------------------------------------------------------
+# Monte Carlo settings block
+# ---------------------------------------------------------------------------
+def _monte_carlo_settings(mc: MonteCarloConfig) -> html.Div:
+    return section_card(
+        title="🎲  Monte Carlo Simulation Settings",
+        subtitle="Configure the return assumptions and trial count for probabilistic projections.",
+        children=[
+            dbc.Row([
+                dbc.Col([
+                    html.Div("Simulation Trials", className="input-label"),
+                    dcc.Slider(
+                        id="profile-mc-num-trials",
+                        min=100, max=5000, step=None,
+                        value=mc.num_trials,
+                        marks={
+                            100:   {"label": "100",   "style": {"color": "#94a3b8", "fontSize": "11px"}},
+                            500:   {"label": "500",   "style": {"color": "#94a3b8", "fontSize": "11px"}},
+                            1000:  {"label": "1,000", "style": {"color": "#94a3b8", "fontSize": "11px"}},
+                            2500:  {"label": "2,500", "style": {"color": "#94a3b8", "fontSize": "11px"}},
+                            5000:  {"label": "5,000", "style": {"color": "#94a3b8", "fontSize": "11px"}},
+                        },
+                        tooltip={"placement": "bottom", "always_visible": True},
+                        className="mb-4",
+                    ),
+                    input_row(
+                        "Random Seed (optional)",
+                        "profile-mc-seed",
+                        input_type="number",
+                        value=mc.random_seed,
+                        placeholder="Leave blank for random",
+                        min_val=0,
+                        step=1,
+                        tooltip="Set a fixed seed to get the same results every run.",
+                    ),
+                ], xs=12, md=6),
+                dbc.Col([
+                    input_row(
+                        "Expected Equity Return",
+                        "profile-mc-mean-return",
+                        input_type="number",
+                        value=mc.mean_return_pct,
+                        suffix="%",
+                        tooltip="Mean annual return for equity accounts.",
+                    ),
+                    input_row(
+                        "Annual Equity Volatility",
+                        "profile-mc-std-dev",
+                        input_type="number",
+                        value=mc.std_dev_pct,
+                        suffix="%",
+                        tooltip="Annual standard deviation of equity returns.",
+                    ),
+                    input_row(
+                        "Expected Bond/Cash Return",
+                        "profile-mc-bond-return",
+                        input_type="number",
+                        value=mc.bond_mean_return_pct,
+                        suffix="%",
+                        tooltip="Mean annual return for low-volatility accounts.",
+                    ),
+                ], xs=12, md=6),
+            ], className="g-4"),
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main layout function
 # ---------------------------------------------------------------------------
 def _profile_summary(profile: PlanProfile) -> html.Div:
@@ -276,6 +343,8 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
             people_row,
             html.Div(style={"height": "4px"}),
             _global_settings(profile),
+            html.Div(style={"height": "4px"}),
+            _monte_carlo_settings(profile.monte_carlo),
             html.Div(
                 _profile_summary(profile),
                 id="profile-summary-container"

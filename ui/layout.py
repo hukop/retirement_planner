@@ -34,13 +34,14 @@ from engine.models import PlanProfile
 # Navigation items
 # ---------------------------------------------------------------------------
 _NAV_ITEMS = [
-    ("/",            "📊", "Dashboard"),
-    ("/profile",     "👤", "Profile"),
-    ("/income",      "💼", "Income"),
-    ("/expenses",    "🛒", "Expenses"),
-    ("/investments", "📈", "Investments"),
-    ("/real-estate", "🏠", "Real Estate"),
-    ("/projections", "🔮", "Projections"),
+    ("/",             "📊", "Dashboard"),
+    ("/profile",      "👤", "Profile"),
+    ("/income",       "💼", "Income"),
+    ("/expenses",     "🛒", "Expenses"),
+    ("/investments",  "📈", "Investments"),
+    ("/real-estate",  "🏠", "Real Estate"),
+    ("/projections",  "🔮", "Projections"),
+    ("/monte-carlo",  "🎲", "Monte Carlo"),
 ]
 
 
@@ -198,10 +199,11 @@ def create_layout() -> html.Div:
             dcc.Location(id="url", refresh=False),
 
             # Global data stores
-            dcc.Store(id="profile-store",    data=initial_profile, storage_type="session"),
-            dcc.Store(id="projection-store", data=None,            storage_type="session"),
-            dcc.Store(id="density-store",                          storage_type="local"),
-            dcc.Store(id="theme-store",                            storage_type="local"),
+            dcc.Store(id="profile-store",      data=initial_profile, storage_type="session"),
+            dcc.Store(id="projection-store",   data=None,            storage_type="session"),
+            dcc.Store(id="monte-carlo-store",  data=None,            storage_type="session"),
+            dcc.Store(id="density-store",                            storage_type="local"),
+            dcc.Store(id="theme-store",                              storage_type="local"),
 
             # Toast notification area
             html.Div(id="toast-container", style={
@@ -230,24 +232,26 @@ def create_layout() -> html.Div:
 # Routing callback
 # ---------------------------------------------------------------------------
 _ROUTES: dict[str, str] = {
-    "/":            "dashboard",
-    "/dashboard":   "dashboard",
-    "/profile":     "profile",
-    "/income":      "income",
-    "/expenses":    "expenses",
-    "/investments": "investments",
-    "/real-estate": "real-estate",
-    "/projections": "projections",
+    "/":             "dashboard",
+    "/dashboard":    "dashboard",
+    "/profile":      "profile",
+    "/income":       "income",
+    "/expenses":     "expenses",
+    "/investments":  "investments",
+    "/real-estate":  "real-estate",
+    "/projections":  "projections",
+    "/monte-carlo":  "monte-carlo",
 }
 
 _PAGE_TITLES: dict[str, str] = {
-    "dashboard":   "📊  Dashboard",
-    "profile":     "👤  Profile & Settings",
-    "income":      "💼  Income Sources",
-    "expenses":    "🛒  Expenses",
-    "investments": "📈  Investments",
-    "real-estate": "🏠  Real Estate",
-    "projections": "🔮  Projections",
+    "dashboard":    "📊  Dashboard",
+    "profile":      "👤  Profile & Settings",
+    "income":       "💼  Income Sources",
+    "expenses":     "🛒  Expenses",
+    "investments":  "📈  Investments",
+    "real-estate":  "🏠  Real Estate",
+    "projections":  "🔮  Projections",
+    "monte-carlo":  "🎲  Monte Carlo Simulation",
 }
 
 
@@ -271,24 +275,26 @@ def register_routing_callback(app: dash.Dash) -> None:
         Output("page-content",  "children"),
         Output("topbar-title",  "children"),
         Input("url", "pathname"),
-        State("profile-store",    "data"),
-        State("projection-store", "data"),
+        State("profile-store",      "data"),
+        State("projection-store",   "data"),
+        State("monte-carlo-store",  "data"),
     )
-    def render_page(pathname: str, profile_data: dict, projection_data: dict):
+    def render_page(pathname: str, profile_data: dict, projection_data: dict, mc_data: dict):
         try:
-            from ui.pages.dashboard   import layout as dashboard_layout
-            from ui.pages.profile     import layout as profile_layout
-            from ui.pages.income      import layout as income_layout
-            from ui.pages.expenses    import layout as expenses_layout
-            from ui.pages.investments import layout as investments_layout
-            from ui.pages.real_estate import layout as real_estate_layout
-            from ui.pages.projections import layout as projections_layout
+            from ui.pages.dashboard    import layout as dashboard_layout
+            from ui.pages.profile      import layout as profile_layout
+            from ui.pages.income       import layout as income_layout
+            from ui.pages.expenses     import layout as expenses_layout
+            from ui.pages.investments  import layout as investments_layout
+            from ui.pages.real_estate  import layout as real_estate_layout
+            from ui.pages.projections  import layout as projections_layout
+            from ui.pages.monte_carlo  import layout as monte_carlo_layout
 
             page_key = _ROUTES.get(pathname or "/", "dashboard")
             title    = _PAGE_TITLES.get(page_key, "")
 
             if page_key == "dashboard":
-                content = dashboard_layout(profile_data, projection_data)
+                content = dashboard_layout(profile_data, projection_data, mc_data)
             elif page_key == "profile":
                 content = profile_layout(profile_data)
             elif page_key == "income":
@@ -301,6 +307,8 @@ def register_routing_callback(app: dash.Dash) -> None:
                 content = real_estate_layout(profile_data)
             elif page_key == "projections":
                 content = projections_layout(profile_data, projection_data)
+            elif page_key == "monte-carlo":
+                content = monte_carlo_layout(profile_data, mc_data)
             else:
                 content = _placeholder_page(page_key)
 
