@@ -33,6 +33,7 @@ def _property_item(idx: int, prop: dict) -> html.Div:
     return dynamic_item(
         item_index=idx,
         title=prop.get("name", "New Property"),
+        subtitle=f"Valued at ${float(prop.get('current_value', 0) or 0):,.0f}",
         delete_id={"type": "btn-delete-property", "index": idx},
         item_id={"type": "property-item", "index": idx},
         children=[

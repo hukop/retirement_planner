@@ -36,13 +36,14 @@ _INCOME_TYPE_OPTIONS = [
 def _income_source_item(idx: int, inc: dict) -> html.Div:
     """Render a single income source block."""
     pfx = f"income-{idx}"
-    
+
     # We use pattern-matching dictionaries for IDs if we want to handle dynamic updates,
     # but for initial rendering during layout phase, simple dict form strings work.
-    
+
     return dynamic_item(
         item_index=idx,
         title=inc.get("name", "New Income Source"),
+        subtitle=f"${float(inc.get('annual_amount', 0) or 0):,.0f} / yr",
         delete_id={"type": "btn-delete-income", "index": idx},
         item_id={"type": "income-item", "index": idx},
         children=[
@@ -144,38 +145,38 @@ def _ss_strategy_chart(profile: PlanProfile) -> go.Figure:
     """Build a bar chart showing Social Security benefits at different claiming ages."""
     from engine.social_security import compute_ss_benefit, fra_in_years
     from datetime import date
-    
+
     current_year = date.today().year
-    
+
     fig = go.Figure()
-    
-    for owner, person, color in [("Self", profile.self_person, "#4a7af7"), 
+
+    for owner, person, color in [("Self", profile.self_person, "#4a7af7"),
                                  ("Spouse", profile.spouse, "#34d399")]:
         pia = float(person.ss_monthly_benefit or 0)
         if pia <= 0:
             continue
-            
+
         birth_year = current_year - int(person.current_age or 50)
         fra = fra_in_years(birth_year)
-        
+
         ages = list(range(62, 71))
         benefits = []
-        
+
         for age in ages:
             # Temporarily set claim age to test
             copy_person = person
             copy_person.ss_claiming_age = age
             ss = compute_ss_benefit(copy_person, current_year)
             benefits.append(ss.adjusted_monthly * 12)
-            
+
         fig.add_trace(go.Bar(
-            x=ages, 
+            x=ages,
             y=benefits,
             name=owner,
             marker_color=color,
             hovertemplate=f"{owner} Claiming at %{{x}}: $%{{y:,.0f}}/yr<extra></extra>"
         ))
-        
+
         # Add visual indicator for FRA
         fig.add_vline(x=fra, line_width=1, line_dash="dash", line_color=color, opacity=0.5)
 
@@ -195,7 +196,7 @@ def _ss_strategy_chart(profile: PlanProfile) -> go.Figure:
 def layout(profile_data: Optional[dict] = None) -> html.Div:
     """Render the income page."""
     profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
-    
+
     # ── Active Incomes List ──────────────────────────────────────────────
     incomes_list = []
     if not profile.incomes:
@@ -212,18 +213,18 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
             add_button("Add Income Source", btn_id="btn-add-income")
         ]
     )
-    
+
     # ── Social Security Analysis ─────────────────────────────────────────
     ss_chart = dcc.Graph(
         id="ss-strategy-chart",
         figure=_ss_strategy_chart(profile),
         config={"displayModeBar": False, "responsive": True},
     )
-    
+
     ss_section = section_card(
-        title="🇺🇸  Social Security Claiming Analysis",
+        title="US Social Security Claiming Analysis",
         children=[
-            html.P("Compare the impact of different claiming ages on your annual Social Security benefits. Claiming earlier permanently reduces the annual payout, while delaying increases it.", 
+            html.P("Compare the impact of different claiming ages on your annual Social Security benefits. Claiming earlier permanently reduces the annual payout, while delaying increases it.",
                    style={"fontSize": "13px", "color": "var(--text-secondary)", "marginBottom": "20px"}),
             ss_chart
         ]
@@ -231,7 +232,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     # ── Summary Strip ────────────────────────────────────────────────────
     total_active_income = sum(float(i.annual_amount or 0) for i in profile.incomes)
-    
+
     strip = summary_row([
         ("Total Active Income", f"${total_active_income:,.0f}/yr", "blue"),
         ("Income Sources", f"{len(profile.incomes)} sources", "purple"),

@@ -190,7 +190,6 @@ def _net_worth_chart(annual_df, retire_yr: int) -> go.Figure:
 
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title":       {"text": "Net Worth Over Time", "x": 0.02, "xanchor": "left"},
         "shapes":      shapes,
         "annotations": annotations,
         "legend":      {**PLOTLY_DARK_TEMPLATE["layout"]["legend"],
@@ -259,9 +258,8 @@ def _income_donut(profile: PlanProfile, annual_df) -> go.Figure:
 
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title":  {"text": "Retirement Income Sources", "x": 0.02, "xanchor": "left"},
         "height": 240,
-        "margin": {"l": 10, "r": 10, "t": 44, "b": 10},
+        "margin": {"l": 10, "r": 10, "t": 16, "b": 10},
         "showlegend": False,
     })
     fig.update_layout(**layout)
@@ -382,14 +380,15 @@ def layout(
         [
             # Net worth chart (left 8 cols)
             dbc.Col(
-                html.Div(
-                    dcc.Graph(
-                        id="dash-networth-chart",
-                        figure=nw_fig,
-                        config={"displayModeBar": False, "responsive": True},
-                    ),
-                    className="section-card",
-                    style={"padding": "12px"},
+                section_card(
+                    title="Net Worth Over Time",
+                    children=[
+                        dcc.Graph(
+                            id="dash-networth-chart",
+                            figure=nw_fig,
+                            config={"displayModeBar": False, "responsive": True},
+                        )
+                    ]
                 ),
                 xs=12, lg=8,
             ),
@@ -397,14 +396,15 @@ def layout(
             # Right panel (donut + quick actions)
             dbc.Col(
                 [
-                    html.Div(
-                        dcc.Graph(
-                            id="dash-income-donut",
-                            figure=donut_fig,
-                            config={"displayModeBar": False, "responsive": True},
-                        ),
-                        className="section-card",
-                        style={"padding": "12px"},
+                    section_card(
+                        title="Retirement Income Sources",
+                        children=[
+                            dcc.Graph(
+                                id="dash-income-donut",
+                                figure=donut_fig,
+                                config={"displayModeBar": False, "responsive": True},
+                            )
+                        ]
                     ),
                     _quick_actions(),
                 ],

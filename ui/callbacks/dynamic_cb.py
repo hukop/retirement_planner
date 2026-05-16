@@ -6,7 +6,7 @@ and removing items when the trash icon is clicked.
 """
 
 import dash
-from dash import Input, Output, State, ALL, Patch
+from dash import Input, Output, State, ALL, Patch, ClientsideFunction
 import uuid
 
 def register_dynamic_callbacks(app: dash.Dash):
@@ -163,4 +163,51 @@ def register_dynamic_callbacks(app: dash.Dash):
         Input("density-store", "data"),
         Input("theme-store", "data"),
         prevent_initial_call=False
+    )
+    # ── Real-time Header Sync (Updates title/subtitle as you type) ──
+    # Income
+    app.clientside_callback(
+        ClientsideFunction(namespace="clientside", function_name="sync_income_header"),
+        [Output({"type": "income-item-title-text", "index": dash.MATCH}, "children"),
+         Output({"type": "income-item-subtitle-text", "index": dash.MATCH}, "children")],
+        [Input({"type": "income-name", "index": dash.MATCH}, "value"),
+         Input({"type": "income-amount", "index": dash.MATCH}, "value")]
+    )
+
+    # Recurring Expense
+    app.clientside_callback(
+        ClientsideFunction(namespace="clientside", function_name="sync_expense_header"),
+        [Output({"type": "expense-item-title-text", "index": dash.MATCH}, "children"),
+         Output({"type": "expense-item-subtitle-text", "index": dash.MATCH}, "children")],
+        [Input({"type": "expense-name", "index": dash.MATCH}, "value"),
+         Input({"type": "expense-amount", "index": dash.MATCH}, "value"),
+         Input({"type": "expense-category", "index": dash.MATCH}, "value")]
+    )
+
+    # One-time Expense
+    app.clientside_callback(
+        ClientsideFunction(namespace="clientside", function_name="sync_otex_header"),
+        [Output({"type": "otex-item-title-text", "index": dash.MATCH}, "children"),
+         Output({"type": "otex-item-subtitle-text", "index": dash.MATCH}, "children")],
+        [Input({"type": "otex-name", "index": dash.MATCH}, "value"),
+         Input({"type": "otex-amount", "index": dash.MATCH}, "value"),
+         Input({"type": "otex-year", "index": dash.MATCH}, "value")]
+    )
+
+    # Investment Account
+    app.clientside_callback(
+        ClientsideFunction(namespace="clientside", function_name="sync_account_header"),
+        [Output({"type": "account-item-title-text", "index": dash.MATCH}, "children"),
+         Output({"type": "account-item-subtitle-text", "index": dash.MATCH}, "children")],
+        [Input({"type": "acc-name", "index": dash.MATCH}, "value"),
+         Input({"type": "acc-balance", "index": dash.MATCH}, "value")]
+    )
+
+    # Real Estate Property
+    app.clientside_callback(
+        ClientsideFunction(namespace="clientside", function_name="sync_property_header"),
+        [Output({"type": "property-item-title-text", "index": dash.MATCH}, "children"),
+         Output({"type": "property-item-subtitle-text", "index": dash.MATCH}, "children")],
+        [Input({"type": "prop-name", "index": dash.MATCH}, "value"),
+         Input({"type": "prop-value", "index": dash.MATCH}, "value")]
     )

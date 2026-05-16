@@ -29,3 +29,7 @@ data/profiles/*.json
 # Dash
 .dash_jupyter/
 .cache/
+
+# Temporary / Scratch files
+scratch/
+scratch_*.py

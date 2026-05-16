@@ -329,7 +329,8 @@ def dynamic_item(
     children:   Any,
     delete_id:  dict,          # Dash pattern-matching id dict for the delete button
     item_id:    Optional[dict] = None,
-) -> html.Div:
+    subtitle:   Optional[str] = None,
+) -> html.Details:
     """
     A removable item card used in dynamic lists (income sources, accounts, etc.).
 
@@ -346,21 +347,49 @@ def dynamic_item(
     if item_id:
         outer_kwargs["id"] = item_id
 
-    return html.Div(
+    return html.Details(
         [
+            html.Summary(
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                html.Span("▼", style={"fontSize": "10px", "color": "var(--text-muted)", "marginRight": "10px"}),
+                                html.Span(
+                                    title, 
+                                    id={"type": f"{item_id['type']}-title-text", "index": item_id['index']} if isinstance(item_id, dict) else None
+                                ),
+                            ],
+                            className="dynamic-item-title",
+                            style={"flexGrow": "1", "display": "flex", "alignItems": "center"}
+                        ),
+                        html.Div(
+                            subtitle, 
+                            id={"type": f"{item_id['type']}-subtitle-text", "index": item_id['index']} if isinstance(item_id, dict) else None,
+                            className="dynamic-item-subtitle", 
+                            style={"fontSize": "16px", "fontWeight": "600", "color": "var(--text-primary)", "marginLeft": "15px"}
+                        ) if subtitle else None,
+                    ],
+                    className="dynamic-item-header",
+                    style={"width": "100%", "marginBottom": "0"}
+                ),
+                style={"cursor": "pointer", "listStyle": "none", "outline": "none"}
+            ),
             html.Div(
                 [
-                    html.Div(title, className="dynamic-item-title"),
-                    html.Button(
-                        "✕ Remove",
-                        id=delete_id,
-                        className="btn-danger-ghost",
-                        n_clicks=0,
-                    ),
-                ],
-                className="dynamic-item-header",
+                    html.Div(children),
+                    html.Div(
+                        html.Button(
+                            "✕ Remove",
+                            id=delete_id,
+                            className="btn-danger-ghost",
+                            n_clicks=0,
+                        ),
+                        style={"display": "flex", "justifyContent": "flex-end", "marginTop": "20px"}
+                    )
+                ], 
+                style={"paddingTop": "15px"}
             ),
-            html.Div(children),
         ],
         **outer_kwargs,
     )
@@ -527,7 +556,7 @@ PLOTLY_DARK_TEMPLATE = {
             "#2dd4bf",   # teal
             "#fb923c",   # orange
         ],
-        "margin": {"l": 56, "r": 20, "t": 48, "b": 48},
+        "margin": {"l": 56, "r": 20, "t": 16, "b": 48},
         "hovermode": "x unified",
     }
 }

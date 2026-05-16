@@ -38,10 +38,11 @@ _ACCOUNT_TYPE_OPTIONS = [
 def _investment_item(idx: int, acc: dict) -> html.Div:
     """Render a single investment account block."""
     acc_type = acc.get("account_type", "brokerage")
-    
+
     return dynamic_item(
         item_index=idx,
         title=acc.get("name", "New Account"),
+        subtitle=f"${float(acc.get('balance', 0) or 0):,.0f}",
         delete_id={"type": "btn-delete-account", "index": idx},
         item_id={"type": "account-item", "index": idx},
         children=[
@@ -155,7 +156,7 @@ def _portfolio_breakdown_chart(profile: PlanProfile) -> go.Figure:
     """Pie chart showing account balances clustered by tax characteristics."""
     labels = ["Tax-Deferred (401k/Trad)", "Tax-Free (Roth/HSA)", "Taxable (Brokerage/Bank)"]
     values = [0, 0, 0]
-    
+
     for acc in profile.accounts:
         bal = float(acc.balance or 0)
         if acc.account_type in ("401k", "trad_ira"):
@@ -164,7 +165,7 @@ def _portfolio_breakdown_chart(profile: PlanProfile) -> go.Figure:
             values[1] += bal
         else:
             values[2] += bal
-            
+
     fig = go.Figure(go.Pie(
         labels=labels,
         values=values,
@@ -173,25 +174,28 @@ def _portfolio_breakdown_chart(profile: PlanProfile) -> go.Figure:
             colors=["#fbbf24", "#34d399", "#4a7af7"], # amber, green, blue
             line=dict(color="var(--bg-card)", width=2)
         ),
-        textinfo="label+percent",
-        textfont=dict(size=11, family="Inter"),
+        textinfo="percent",
+        textposition="outside",
+        textfont=dict(size=16, family="Inter"),
         hovertemplate="%{label}: $%{value:,.0f}<extra></extra>",
     ))
-    
+
     total = sum(values)
-    fig.add_annotation(
-        text=f"${total:,.0f}<br><span style='font-size:10px'>Total Nest Egg</span>",
-        x=0.5, y=0.5, showarrow=False,
-        font=dict(size=15, color="var(--text-primary)", family="Inter"),
-        align="center",
-    )
-    
+
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title": {"text": "Tax Liability Distribution", "x": 0.02, "xanchor": "left"},
-        "height": 280,
-        "margin": {"l": 10, "r": 10, "t": 40, "b": 10},
-        "showlegend": False,
+        "title": {"text": "Tax Liability Distribution", "x": 0.02, "xanchor": "left", "font": {"size": 18}},
+        "height": 400,
+        "margin": {"l": 20, "r": 20, "t": 60, "b": 60},
+        "showlegend": True,
+        "legend": dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.1,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=13)
+        ),
     })
     fig.update_layout(**layout)
     return fig
@@ -199,7 +203,7 @@ def _portfolio_breakdown_chart(profile: PlanProfile) -> go.Figure:
 def layout(profile_data: Optional[dict] = None) -> html.Div:
     """Render the investments page."""
     profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
-    
+
     # ── Accounts List ───────────────────────────────────────────────────
     accounts_list = []
     if not profile.accounts:
@@ -216,15 +220,33 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
             add_button("Add Account", btn_id="btn-add-account")
         ]
     )
-    
+
     # ── Portfolio Chart Section ─────────────────────────────────────────
     chart_section = section_card(
         title="💼  Portfolio Overview",
         children=[
-            dcc.Graph(
-                id="portfolio-breakdown-chart",
-                figure=_portfolio_breakdown_chart(profile),
-                config={"displayModeBar": False, "responsive": True},
+            html.Div(
+                [
+                    dcc.Graph(
+                        id="portfolio-breakdown-chart",
+                        figure=_portfolio_breakdown_chart(profile),
+                        config={"displayModeBar": False, "responsive": True},
+                    ),
+                    html.Div(
+                        [
+                            html.Div(f"${sum(float(a.balance or 0) for a in profile.accounts):,.0f}", style={"fontSize": "clamp(18px, 1.8vw, 22px)", "fontWeight": "bold", "color": "var(--text-primary)"})
+                        ],
+                        style={
+                            "position": "absolute",
+                            "top": "46%",
+                            "left": "50%",
+                            "transform": "translate(-50%, -50%)",
+                            "textAlign": "center",
+                            "pointerEvents": "none",
+                        }
+                    )
+                ],
+                style={"position": "relative"}
             )
         ]
     )
@@ -232,7 +254,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
     # ── Summary Strip ───────────────────────────────────────────────────
     total_balance = sum(float(a.balance or 0) for a in profile.accounts)
     total_contribs = sum(float(a.annual_contribution or 0) for a in profile.accounts)
-    
+
     strip = summary_row([
         ("Total Net Worth (Investments)", f"${total_balance:,.0f}", "blue"),
         ("Planned Annual Savings", f"${total_contribs:,.0f}", "green"),

@@ -133,7 +133,6 @@ def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int, profile: PlanProf
     shapes, annotations = retirement_vline(retire_yr)
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title": {"text": "Detailed Net Worth Accumulation", "x": 0.02},
         "shapes": shapes, "annotations": annotations,
         "legend": {**PLOTLY_DARK_TEMPLATE["layout"]["legend"], "orientation": "h", "y": -0.15, "x": 0},
     })
@@ -176,7 +175,6 @@ def _cashflow_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
     shapes, annotations = retirement_vline(retire_yr)
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title": {"text": "Annual Cash Flow & Tax Withholding", "x": 0.02},
         "barmode": "group",
         "shapes": shapes, "annotations": annotations,
         "legend": {**PLOTLY_DARK_TEMPLATE["layout"]["legend"], "orientation": "h", "y": -0.15, "x": 0},
@@ -201,7 +199,6 @@ def _drawdown_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
     shapes, annotations = retirement_vline(retire_yr)
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title": {"text": "Investment Portfolio Drawdown Projection", "x": 0.02},
         "shapes": shapes, "annotations": annotations,
         "showlegend": False,
     })
@@ -248,7 +245,6 @@ def _income_sources_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
 
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title": {"text": "Retirement Inflows (Stacked)", "x": 0.02},
         "barmode": "stack",
         "legend": {**PLOTLY_DARK_TEMPLATE["layout"]["legend"], "orientation": "h", "y": -0.15, "x": 0},
     })
@@ -300,15 +296,15 @@ def layout(profile_data: Optional[dict] = None, projection_data: Optional[list] 
             
             # Row 1 of Charts
             two_col(
-                section_card("Net Worth Components", children=[dcc.Graph(figure=nw_fig, config={"displayModeBar": False})]),
-                section_card("Cashflow Breakdown", children=[dcc.Graph(figure=cash_fig, config={"displayModeBar": False})]),
+                section_card("Detailed Net Worth Accumulation", children=[dcc.Graph(figure=nw_fig, config={"displayModeBar": False})]),
+                section_card("Annual Cash Flow & Tax Withholding", children=[dcc.Graph(figure=cash_fig, config={"displayModeBar": False})]),
                 left_width=6
             ),
             
             # Row 2 of Charts
             two_col(
-                section_card("Retirement Inflows", children=[dcc.Graph(figure=inflow_fig, config={"displayModeBar": False})]),
-                section_card("Portfolio Drawdown", children=[dcc.Graph(figure=draw_fig, config={"displayModeBar": False})]),
+                section_card("Retirement Inflows (Stacked)", children=[dcc.Graph(figure=inflow_fig, config={"displayModeBar": False})]),
+                section_card("Investment Portfolio Drawdown Projection", children=[dcc.Graph(figure=draw_fig, config={"displayModeBar": False})]),
                 left_width=6
             ),
             

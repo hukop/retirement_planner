@@ -343,18 +343,18 @@ def run_monte_carlo(
         num_months=num_months,
         start_year=start_year,
         years=years,
-        success_rate=success_rate,
-        terminal_net_worths=sorted(terminal_net_worths),
+        success_rate=float(success_rate),
+        terminal_net_worths=[float(x) for x in sorted(terminal_net_worths)],
         percentile_labels=pct_labels,
         net_worth_percentiles=net_worth_percentiles,
         median_trial_df=all_annual_dfs[median_idx].to_dict("records"),
         worst_trial_df=all_annual_dfs[worst_idx].to_dict("records"),
         best_trial_df=all_annual_dfs[best_idx].to_dict("records"),
         deterministic_df=det_annual.to_dict("records"),
-        ruin_years=ruin_years,
+        ruin_years=[int(x) if x is not None else None for x in ruin_years],
         num_trials_actual=n,
-        mean_return_pct=config.mean_return_pct,
-        std_dev_pct=config.std_dev_pct,
+        mean_return_pct=float(config.mean_return_pct),
+        std_dev_pct=float(config.std_dev_pct),
     )
 
 

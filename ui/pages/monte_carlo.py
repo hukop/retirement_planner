@@ -87,7 +87,7 @@ def _kpi_cards(result: MonteCarloResult) -> dbc.Row:
         metric_card(
             title="Probability of Success",
             value=_fmt_pct(rate),
-            subtitle=f"Portfolio survives to plan end — {result.num_trials:,} trials",
+            subtitle=f"Portfolio survives to plan end ",
             icon="🎯",
             accent=acc,
             card_id="mc-kpi-success",
@@ -179,7 +179,6 @@ def _fan_chart(result: MonteCarloResult, retire_yr: int) -> go.Figure:
     shapes, annotations = retirement_vline(retire_yr)
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title": {"text": "Net Worth Projection — Downside Risk View", "x": 0.02},
         "shapes": shapes,
         "annotations": annotations,
         "legend": {**PLOTLY_DARK_TEMPLATE["layout"]["legend"],
@@ -234,8 +233,6 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
 
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title": {"text": f"Terminal Net Worth Distribution  ·  {fail_pct:.1f}% of trials end at/below $0",
-                  "x": 0.02},
         "showlegend": False,
         "height": 320,
         "yaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["yaxis"],
@@ -263,7 +260,6 @@ def _ruin_year_chart(result: MonteCarloResult) -> go.Figure:
         )
         layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
         layout.update({
-            "title": {"text": "Ruin Year Distribution", "x": 0.02},
             "height": 280,
             "xaxis": {"visible": False},
             "yaxis": {"visible": False},
@@ -281,11 +277,6 @@ def _ruin_year_chart(result: MonteCarloResult) -> go.Figure:
 
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "title": {
-            "text": (f"Ruin Year Distribution  ·  {len(ruin_yrs)} of {result.num_trials} "
-                     f"trials ({len(ruin_yrs)/result.num_trials*100:.1f}%) ran out of money"),
-            "x": 0.02,
-        },
         "showlegend": False,
         "height": 280,
         "yaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["yaxis"],

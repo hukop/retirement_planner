@@ -39,6 +39,7 @@ def _expense_item(idx: int, exp: dict) -> html.Div:
     return dynamic_item(
         item_index=idx,
         title=display_name,
+        subtitle=f"${float(exp.get('monthly_amount', 0) or 0):,.0f} / mo",
         delete_id={"type": "btn-delete-expense", "index": idx},
         item_id={"type": "expense-item", "index": idx},
         children=[
@@ -98,6 +99,7 @@ def _one_time_expense_item(idx: int, otex: dict) -> html.Div:
     return dynamic_item(
         item_index=idx,
         title=otex.get("name", "New Expense"),
+        subtitle=f"${float(otex.get('amount', 0) or 0):,.0f} in {otex.get('year', 2030)}",
         delete_id={"type": "btn-delete-otex", "index": idx},
         item_id={"type": "otex-item", "index": idx},
         children=[

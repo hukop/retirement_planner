@@ -82,16 +82,42 @@ def register_runner_callbacks(app: dash.Dash):
             raise dash.exceptions.PreventUpdate
             
         try:
-            # We use dcc.send_string to push the JSON natively to the browser's download manager.
+            import tkinter as tk
+            from tkinter import filedialog
+            
             default_filename = profile_data.get("plan_name", "my_retirement_plan").replace(" ", "_").lower() + ".json"
             
-            json_str = json.dumps(profile_data, indent=2)
+            root = tk.Tk()
+            root.attributes("-topmost", True)
+            root.withdraw()
             
-            return dict(content=json_str, filename=default_filename), dbc.Toast(
-                "Plan downloaded successfully.",
+            file_path = filedialog.asksaveasfilename(
+                parent=root,
+                defaultextension=".json",
+                filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
+                initialfile=default_filename,
+                title="Save Retirement Plan"
+            )
+            root.destroy()
+            
+            if not file_path:
+                return dash.no_update, dbc.Toast(
+                    "Save cancelled.",
+                    header="Cancelled",
+                    icon="warning",
+                    duration=3000,
+                    is_open=True,
+                )
+                
+            import json
+            with open(file_path, "w") as f:
+                json.dump(profile_data, f, indent=2)
+                
+            return dash.no_update, dbc.Toast(
+                f"Plan saved to: {file_path}",
                 header="Save Success",
                 icon="success",
-                duration=3000,
+                duration=4000,
                 is_open=True,
             )
         except Exception as e:
