@@ -267,12 +267,20 @@ def _ruin_year_chart(result: MonteCarloResult) -> go.Figure:
         fig.update_layout(**layout)
         return fig
 
-    fig.add_trace(go.Histogram(
-        x=ruin_yrs,
-        nbinsx=max(10, len(set(ruin_yrs))),
+    # Calculate histogram manually for maximum stability across Plotly versions
+    num_bins = max(10, min(50, len(set(ruin_yrs))))
+    counts, bin_edges = np.histogram(ruin_yrs, bins=num_bins)
+    
+    # Convert to percentages of total trials
+    pcts = (counts / max(1, result.num_trials)) * 100.0
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    fig.add_trace(go.Bar(
+        x=bin_centers,
+        y=pcts,
         marker=dict(color=_C["worst"], opacity=0.75),
         name="Year money runs out",
-        hovertemplate="Year %{x}: %{y} trials<extra></extra>",
+        hovertemplate="Year %{x:.0f}: %{y:.1f}% of total trials<extra></extra>",
     ))
 
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
@@ -280,9 +288,10 @@ def _ruin_year_chart(result: MonteCarloResult) -> go.Figure:
         "showlegend": False,
         "height": 280,
         "yaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["yaxis"],
-                  "tickprefix": "", "tickformat": ",d", "title": "# Trials"},
+                  "tickprefix": "", "tickformat": ".1f", "ticksuffix": "%", "title": "% of Total Trials"},
         "xaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["xaxis"],
                   "tickprefix": "", "tickformat": "d", "title": "Calendar Year"},
+        "bargap": 0.1,
     })
     fig.update_layout(**layout)
     return fig
@@ -291,18 +300,71 @@ def _ruin_year_chart(result: MonteCarloResult) -> go.Figure:
 # ---------------------------------------------------------------------------
 # Configuration panel (shown before first run and always editable)
 # ---------------------------------------------------------------------------
-def _config_panel() -> html.Div:
+def _config_panel(current_trials: int = 1000) -> html.Div:
     return html.Div([
-        html.Div(
-            html.Button(
-                [html.Span("▶  Run Simulation", id="mc-btn-label")],
-                id="btn-run-monte-carlo",
-                className="btn-primary-custom",
-                n_clicks=0,
-                style={"width": "220px", "fontSize": "14px", "fontWeight": "700"},
+        dbc.Row([
+            dbc.Col(
+                html.Button(
+                    [html.Span("▶  Run Simulation", id="mc-btn-label")],
+                    id="btn-run-monte-carlo",
+                    className="btn-primary-custom",
+                    n_clicks=0,
+                    style={"width": "200px", "fontSize": "14px", "fontWeight": "700"},
+                ),
+                width="auto",
             ),
-            style={"display": "flex", "justifyContent": "flex-start"},
-        ),
+            dbc.Col(
+                [
+                    html.Span("using", style={"fontSize": "13px", "color": "var(--text-muted)", "margin": "0 10px 0 15px"}),
+                    dbc.Select(
+                        id="mc-input-num-trials",
+                        options=[
+                            {"label": "100 trials", "value": "100"},
+                            {"label": "500 trials", "value": "500"},
+                            {"label": "1,000 trials", "value": "1000"},
+                            {"label": "2,500 trials", "value": "2500"},
+                            {"label": "5,000 trials", "value": "5000"},
+                        ],
+                        value=str(current_trials),
+                        size="sm",
+                        style={"width": "120px", "display": "inline-block", "backgroundColor": "var(--bg-input)", "borderColor": "var(--border-input)", "color": "var(--text-primary)", "fontSize": "12px"}
+                    ),
+                ],
+                className="d-flex align-items-center",
+                width="auto",
+            ),
+            dbc.Col(
+                [
+                    html.Span("live update every", style={"fontSize": "13px", "color": "var(--text-muted)", "margin": "0 10px 0 20px"}),
+                    dbc.Select(
+                        id="mc-input-live-interval",
+                        options=[
+                            {"label": "Off", "value": "0"},
+                            {"label": "10 trials", "value": "10"},
+                            {"label": "25 trials", "value": "25"},
+                            {"label": "50 trials", "value": "50"},
+                            {"label": "100 trials", "value": "100"},
+                        ],
+                        value="25",
+                        size="sm",
+                        style={"width": "110px", "display": "inline-block", "backgroundColor": "var(--bg-input)", "borderColor": "var(--border-input)", "color": "var(--text-primary)", "fontSize": "12px"}
+                    ),
+                ],
+                className="d-flex align-items-center",
+                width="auto",
+            ),
+            dbc.Col(
+                dcc.Checklist(
+                    id="mc-input-adaptive-spending",
+                    options=[{"label": " Adaptive Spending", "value": "on"}],
+                    value=[],
+                    inputStyle={"marginRight": "8px"},
+                    style={"fontSize": "13px", "color": "var(--text-secondary)", "marginLeft": "20px"},
+                ),
+                className="d-flex align-items-center",
+                width="auto",
+            ),
+        ], align="center", className="g-0"),
 
         # ── Progress bar (hidden until simulation starts) ─────────────────
         html.Div(
@@ -426,7 +488,7 @@ def layout(
     retire_yr = profile.retirement_year_self
 
     # ── Control panel ─────────────────────────────────────────────────────
-    control_panel = html.Div(_config_panel(), style={"marginBottom": "24px"})
+    control_panel = html.Div(_config_panel(config.num_trials), style={"marginBottom": "24px"})
 
     # ── Results section ───────────────────────────────────────────────────
     if mc_data:
@@ -438,11 +500,9 @@ def layout(
     return html.Div(
         [
             control_panel,
-            dcc.Loading(
-                id="mc-results-loading",
-                type="circle",
-                color="var(--accent-blue)",
-                children=html.Div(id="mc-results-area", children=results_content),
-            ),
+
+            dcc.Interval(id="mc-live-interval", interval=1500, disabled=True),
+
+            html.Div(id="mc-results-area", children=results_content),
         ]
     )

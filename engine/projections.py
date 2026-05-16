@@ -129,6 +129,7 @@ class ProjectionEngine:
         self,
         profile: PlanProfile,
         return_overrides: Optional[np.ndarray] = None,
+        expense_multipliers: Optional[np.ndarray] = None,
     ):
         """
         Parameters
@@ -140,10 +141,15 @@ class ProjectionEngine:
                           instead of using their own configured return rate.
                           When None (default), each account uses its own rate
                           (deterministic projection).
+        expense_multipliers: optional 1-D NumPy array of monthly expense
+                          scaling factors.  A value of 0.85 means expenses
+                          are reduced by 15% that month; 1.07 means +7%.
+                          When None (default), expenses are unscaled.
         """
-        self.profile          = profile
-        self.start_year       = date.today().year
-        self.return_overrides = return_overrides
+        self.profile              = profile
+        self.start_year           = date.today().year
+        self.return_overrides     = return_overrides
+        self.expense_multipliers  = expense_multipliers
 
     # ------------------------------------------------------------------ #
     # Public API                                                          #
@@ -242,6 +248,12 @@ class ProjectionEngine:
                 self_working=self_working, spouse_working=spouse_working,
                 infl=infl,
             )
+
+            # Apply adaptive spending multiplier if provided
+            if self.expense_multipliers is not None and m < len(self.expense_multipliers):
+                mult = float(self.expense_multipliers[m])
+                for k in exp:
+                    exp[k] = round(exp[k] * mult, 2)
 
             # ── 3. Real estate: appreciate + amortize ────────────────────
             step_all_month(re_portfolio, current_year=year)

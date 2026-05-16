@@ -38,7 +38,8 @@ def register_forms_callbacks(app: dash.Dash):
         State("profile-filing-status", "value"), State("profile-inflation-rate", "value"),
 
         # Monte Carlo
-        State("profile-mc-num-trials", "value"), State("profile-mc-seed", "value"),
+        State("profile-mc-seed", "value"),
+
         State("profile-mc-mean-return", "value"), State("profile-mc-std-dev", "value"),
         State("profile-mc-bond-return", "value"),
         prevent_initial_call=True
@@ -48,7 +49,7 @@ def register_forms_callbacks(app: dash.Dash):
         slf_n, slf_age, slf_ret, slf_life, slf_ss_ben, slf_ss_age,
         sp_n, sp_age, sp_ret, sp_life, sp_ss_ben, sp_ss_age,
         filing, inflation,
-        mc_n, mc_seed, mc_mean, mc_std, mc_bond
+        mc_seed, mc_mean, mc_std, mc_bond
     ):
         if not profile_data: profile_data = {}
 
@@ -76,14 +77,16 @@ def register_forms_callbacks(app: dash.Dash):
         profile_data["spouse"] = {**existing_spouse, **{k: v for k, v in new_spouse.items() if v is not None}}
 
         # Monte Carlo
+        existing_mc = profile_data.get("monte_carlo", {})
         profile_data["monte_carlo"] = {
-            "num_trials": int(mc_n or 1000),
+            **existing_mc,
             "mean_return_pct": float(mc_mean or 7.0),
             "std_dev_pct": float(mc_std or 15.0),
             "bond_mean_return_pct": float(mc_bond or 4.0),
             "bond_std_dev_pct": 5.0, # default
             "random_seed": int(mc_seed) if mc_seed is not None and str(mc_seed).strip() != "" else None,
         }
+
 
         return profile_data, _toast("Profile settings updated locally.")
 

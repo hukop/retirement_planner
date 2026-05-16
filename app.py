@@ -14,7 +14,9 @@ from ui.layout import create_layout, register_routing_callback
 # ---------------------------------------------------------------------------
 # Background callback manager (required for progress-reporting callbacks)
 # ---------------------------------------------------------------------------
-_cache = diskcache.Cache("./.cache")
+import os
+_CACHE_DIR = os.path.join(os.path.dirname(__file__), ".cache")
+_cache = diskcache.Cache(_CACHE_DIR)
 background_callback_manager = DiskcacheManager(_cache)
 
 

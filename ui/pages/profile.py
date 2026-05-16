@@ -234,21 +234,6 @@ def _monte_carlo_settings(mc: MonteCarloConfig) -> html.Div:
         children=[
             dbc.Row([
                 dbc.Col([
-                    html.Div("Simulation Trials", className="input-label"),
-                    dcc.Slider(
-                        id="profile-mc-num-trials",
-                        min=100, max=5000, step=None,
-                        value=mc.num_trials,
-                        marks={
-                            100:   {"label": "100",   "style": {"color": "#94a3b8", "fontSize": "11px"}},
-                            500:   {"label": "500",   "style": {"color": "#94a3b8", "fontSize": "11px"}},
-                            1000:  {"label": "1,000", "style": {"color": "#94a3b8", "fontSize": "11px"}},
-                            2500:  {"label": "2,500", "style": {"color": "#94a3b8", "fontSize": "11px"}},
-                            5000:  {"label": "5,000", "style": {"color": "#94a3b8", "fontSize": "11px"}},
-                        },
-                        tooltip={"placement": "bottom", "always_visible": True},
-                        className="mb-4",
-                    ),
                     input_row(
                         "Random Seed (optional)",
                         "profile-mc-seed",
@@ -260,6 +245,7 @@ def _monte_carlo_settings(mc: MonteCarloConfig) -> html.Div:
                         tooltip="Set a fixed seed to get the same results every run.",
                     ),
                 ], xs=12, md=6),
+
                 dbc.Col([
                     input_row(
                         "Expected Equity Return",

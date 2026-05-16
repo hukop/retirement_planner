@@ -236,6 +236,75 @@ def _build_blended_return_sequence(
 
 
 # ---------------------------------------------------------------------------
+# Adaptive spending: expense multipliers from market returns
+# ---------------------------------------------------------------------------
+
+def _compute_expense_multipliers(
+    monthly_returns: np.ndarray,
+    num_months: int,
+    cut_max: float = 0.15,
+    boost_max: float = 0.07,
+) -> np.ndarray:
+    """
+    Compute a per-month expense multiplier based on trailing 12-month returns.
+
+    Logic
+    -----
+    For each month, compute the cumulative return over the prior 12 months
+    (or all available months if fewer than 12 exist).  Map that annualised
+    return to a spending multiplier:
+
+      - Annual return <= -20%  →  multiplier = 1 - cut_max   (0.85)
+      - Annual return >= +20%  →  multiplier = 1 + boost_max (1.07)
+      - 0% return              →  multiplier = 1.0 (no change)
+      - Linear interpolation in between, clamped at the extremes
+
+    The asymmetry (15% cut vs 7% boost) reflects real household behaviour:
+    people cut discretionary spending more aggressively in downturns than
+    they increase it in good times.
+
+    Parameters
+    ----------
+    monthly_returns : 1-D array of monthly return rates for one trial
+    num_months      : total simulation months
+    cut_max         : maximum fractional expense reduction (default 0.15 = 15%)
+    boost_max       : maximum fractional expense increase (default 0.07 = 7%)
+
+    Returns
+    -------
+    1-D numpy array of length num_months, each value in [1-cut_max, 1+boost_max].
+    """
+    multipliers = np.ones(num_months)
+    # Cumulative log returns for efficient trailing window computation
+    log_returns = np.log1p(monthly_returns[:num_months])
+
+    for m in range(num_months):
+        # Trailing window: up to 12 months back
+        lookback = min(m, 12)
+        if lookback < 1:
+            # First month — no history, keep multiplier at 1.0
+            continue
+
+        # Annualised return from trailing window
+        cum_log = np.sum(log_returns[m - lookback:m])
+        # Annualise: scale to 12 months
+        annual_return = np.exp(cum_log * (12 / lookback)) - 1.0
+
+        # Map to multiplier via clamped linear interpolation
+        # Negative returns: scale down (0% → 1.0, -20% → 0.85)
+        # Positive returns: scale up  (0% → 1.0, +20% → 1.07)
+        if annual_return <= 0:
+            # Normalise to [-1, 0] range (clamped at -20%)
+            norm = max(-1.0, annual_return / 0.20)
+            multipliers[m] = 1.0 + norm * cut_max    # at -1: 1 - 0.15 = 0.85
+        else:
+            norm = min(1.0, annual_return / 0.20)
+            multipliers[m] = 1.0 + norm * boost_max  # at +1: 1 + 0.07 = 1.07
+
+    return multipliers
+
+
+# ---------------------------------------------------------------------------
 # Ruin year helper
 # ---------------------------------------------------------------------------
 
@@ -254,9 +323,60 @@ def _find_ruin_year(annual_df: pd.DataFrame) -> Optional[int]:
 # Main public API
 # ---------------------------------------------------------------------------
 
+def _build_partial_result(
+    terminal_net_worths: list[float],
+    ruin_years: list[int | None],
+    all_annual_nw: list[list[float]],
+    all_annual_dfs: list[pd.DataFrame],
+    det_annual: pd.DataFrame,
+    years: list[int],
+    num_months: int,
+    start_year: int,
+    config: MonteCarloConfig,
+    n_completed: int,
+) -> MonteCarloResult:
+    """Build a MonteCarloResult from the trials completed so far."""
+    nw_array   = np.array(all_annual_nw)
+    term_array = np.array(terminal_net_worths)
+
+    success_rate = float(np.mean(term_array > 0))
+
+    pct_labels = [5, 10, 25, 50, 75, 90, 95]
+    pct_matrix = np.percentile(nw_array, pct_labels, axis=0)
+    net_worth_percentiles = pct_matrix.T.tolist()
+
+    sorted_indices = np.argsort(term_array)
+    worst_idx      = int(sorted_indices[0])
+    best_idx       = int(sorted_indices[-1])
+    p50 = float(np.percentile(term_array, 50))
+    median_idx = int(np.argmin(np.abs(term_array - p50)))
+
+    return MonteCarloResult(
+        num_trials=n_completed,
+        num_months=num_months,
+        start_year=start_year,
+        years=years,
+        success_rate=float(success_rate),
+        terminal_net_worths=[float(x) for x in sorted(terminal_net_worths)],
+        percentile_labels=pct_labels,
+        net_worth_percentiles=net_worth_percentiles,
+        median_trial_df=all_annual_dfs[median_idx].to_dict("records"),
+        worst_trial_df=all_annual_dfs[worst_idx].to_dict("records"),
+        best_trial_df=all_annual_dfs[best_idx].to_dict("records"),
+        deterministic_df=det_annual.to_dict("records"),
+        ruin_years=[int(x) if x is not None else None for x in ruin_years],
+        num_trials_actual=n_completed,
+        mean_return_pct=float(config.mean_return_pct),
+        std_dev_pct=float(config.std_dev_pct),
+    )
+
+
 def run_monte_carlo(
     profile: PlanProfile,
     progress_callback: Optional[callable] = None,
+    intermediate_callback: Optional[callable] = None,
+    intermediate_interval: int = 0,
+    adaptive_spending: bool = False,
 ) -> MonteCarloResult:
     """
     Run the full Monte Carlo simulation for ``profile``.
@@ -267,6 +387,14 @@ def run_monte_carlo(
     progress_callback : optional callable(current_trial: int, total_trials: int).
                         Called every 25 trials so callers can report progress.
                         Used by the Dash background callback to update the progress bar.
+    intermediate_callback : optional callable(result: MonteCarloResult).
+                        Called every ``intermediate_interval`` trials with partial
+                        aggregated results for live chart updates.
+    intermediate_interval : int, how many trials between intermediate updates.
+                        0 means no intermediate updates (wait until end).
+    adaptive_spending : bool, if True, scale monthly expenses based on trailing
+                        market returns (cut up to 15% in bad years, boost up to
+                        7% in good years).
 
     Returns
     -------
@@ -300,7 +428,16 @@ def run_monte_carlo(
             profile,
         )
 
-        engine = ProjectionEngine(profile, return_overrides=blended)
+        # Compute adaptive expense multipliers if enabled
+        exp_mults = None
+        if adaptive_spending:
+            exp_mults = _compute_expense_multipliers(blended, num_months)
+
+        engine = ProjectionEngine(
+            profile,
+            return_overrides=blended,
+            expense_multipliers=exp_mults,
+        )
         _, annual_df = engine.run()
 
         terminal_nw = float(annual_df["net_worth_eoy"].iloc[-1])
@@ -312,50 +449,33 @@ def run_monte_carlo(
         all_annual_nw.append(nw_aligned)
         all_annual_dfs.append(annual_df)
 
+        completed = trial_idx + 1
+
         # Report progress every _PROGRESS_INTERVAL trials and on the last trial
         if progress_callback is not None:
-            if (trial_idx + 1) % _PROGRESS_INTERVAL == 0 or (trial_idx + 1) == n:
-                progress_callback(trial_idx + 1, n)
+            if completed % _PROGRESS_INTERVAL == 0 or completed == n:
+                progress_callback(completed, n)
+
+        # Fire intermediate results callback
+        if (intermediate_callback is not None
+                and intermediate_interval > 0
+                and completed >= 2  # need at least 2 trials for percentiles
+                and completed % intermediate_interval == 0
+                and completed != n):  # skip on last trial (final result handles it)
+            partial = _build_partial_result(
+                terminal_net_worths, ruin_years, all_annual_nw,
+                all_annual_dfs, det_annual, years, num_months,
+                start_year, config, completed,
+            )
+            intermediate_callback(partial)
 
     # ── Step 4: Aggregate statistics ─────────────────────────────────────
-    nw_array   = np.array(all_annual_nw)          # shape (n, n_years)
-    term_array = np.array(terminal_net_worths)
-
-    # Success rate: trials where terminal net worth > 0
-    success_rate = float(np.mean(term_array > 0))
-
-    # Percentile bands over time
-    pct_labels = [5, 10, 25, 50, 75, 90, 95]
-    pct_matrix = np.percentile(nw_array, pct_labels, axis=0)  # (7, n_years)
-    net_worth_percentiles = pct_matrix.T.tolist()              # (n_years, 7)
-
-    # Identify median, worst, best trials by terminal net worth
-    sorted_indices = np.argsort(term_array)
-    worst_idx      = int(sorted_indices[0])
-    best_idx       = int(sorted_indices[-1])
-    # Median: trial closest to the 50th percentile terminal value
-    p50 = float(np.percentile(term_array, 50))
-    median_idx = int(np.argmin(np.abs(term_array - p50)))
-
-    # ── Step 5: Build result ──────────────────────────────────────────────
-    return MonteCarloResult(
-        num_trials=n,
-        num_months=num_months,
-        start_year=start_year,
-        years=years,
-        success_rate=float(success_rate),
-        terminal_net_worths=[float(x) for x in sorted(terminal_net_worths)],
-        percentile_labels=pct_labels,
-        net_worth_percentiles=net_worth_percentiles,
-        median_trial_df=all_annual_dfs[median_idx].to_dict("records"),
-        worst_trial_df=all_annual_dfs[worst_idx].to_dict("records"),
-        best_trial_df=all_annual_dfs[best_idx].to_dict("records"),
-        deterministic_df=det_annual.to_dict("records"),
-        ruin_years=[int(x) if x is not None else None for x in ruin_years],
-        num_trials_actual=n,
-        mean_return_pct=float(config.mean_return_pct),
-        std_dev_pct=float(config.std_dev_pct),
+    return _build_partial_result(
+        terminal_net_worths, ruin_years, all_annual_nw,
+        all_annual_dfs, det_annual, years, num_months,
+        start_year, config, n,
     )
+
 
 
 def monte_carlo_result_to_dict(result: MonteCarloResult) -> dict:
