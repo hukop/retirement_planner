@@ -156,7 +156,7 @@ def _ss_strategy_chart(profile: PlanProfile) -> go.Figure:
         if pia <= 0:
             continue
 
-        birth_year = current_year - int(person.current_age or 50)
+        birth_year = person.birth_year
         fra = fra_in_years(birth_year)
 
         ages = list(range(62, 71))

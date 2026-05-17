@@ -25,13 +25,15 @@ def register_forms_callbacks(app: dash.Dash):
         State("profile-store", "data"),
 
         # Self
-        State("profile-self-name", "value"), State("profile-self-age", "value"),
-        State("profile-self-retirement-age", "value"), State("profile-self-life-expectancy", "value"),
+        State("profile-self-name", "value"), 
+        State("profile-self-birth-year", "value"), State("profile-self-birth-month", "value"),
+        State("profile-self-retirement-year", "value"), State("profile-self-life-expectancy", "value"),
         State("profile-self-ss-benefit", "value"), State("profile-self-ss-claiming-age", "value"),
 
         # Spouse
-        State("profile-spouse-name", "value"), State("profile-spouse-age", "value"),
-        State("profile-spouse-retirement-age", "value"), State("profile-spouse-life-expectancy", "value"),
+        State("profile-spouse-name", "value"), 
+        State("profile-spouse-birth-year", "value"), State("profile-spouse-birth-month", "value"),
+        State("profile-spouse-retirement-year", "value"), State("profile-spouse-life-expectancy", "value"),
         State("profile-spouse-ss-benefit", "value"), State("profile-spouse-ss-claiming-age", "value"),
 
         # Globals
@@ -46,8 +48,8 @@ def register_forms_callbacks(app: dash.Dash):
     )
     def sync_profile(
         n_clicks, profile_data,
-        slf_n, slf_age, slf_ret, slf_life, slf_ss_ben, slf_ss_age,
-        sp_n, sp_age, sp_ret, sp_life, sp_ss_ben, sp_ss_age,
+        slf_n, slf_yr, slf_mo, slf_ret_yr, slf_life, slf_ss_ben, slf_ss_age,
+        sp_n, sp_yr, sp_mo, sp_ret_yr, sp_life, sp_ss_ben, sp_ss_age,
         filing, inflation,
         mc_seed, mc_mean, mc_std, mc_bond
     ):
@@ -62,7 +64,10 @@ def register_forms_callbacks(app: dash.Dash):
         # reported their new value yet don't wipe out previously saved data.
         existing_self = profile_data.get("self_person", {})
         new_self = {
-            "name": slf_n, "current_age": slf_age, "retirement_age": slf_ret,
+            "name": slf_n, 
+            "birth_year": slf_yr, 
+            "birth_month": slf_mo,
+            "retirement_year": slf_ret_yr,
             "life_expectancy": slf_life, "ss_monthly_benefit": slf_ss_ben,
             "ss_claiming_age": slf_ss_age,
         }
@@ -70,7 +75,10 @@ def register_forms_callbacks(app: dash.Dash):
 
         existing_spouse = profile_data.get("spouse", {})
         new_spouse = {
-            "name": sp_n, "current_age": sp_age, "retirement_age": sp_ret,
+            "name": sp_n, 
+            "birth_year": sp_yr, 
+            "birth_month": sp_mo,
+            "retirement_year": sp_ret_yr,
             "life_expectancy": sp_life, "ss_monthly_benefit": sp_ss_ben,
             "ss_claiming_age": sp_ss_age,
         }
@@ -86,7 +94,6 @@ def register_forms_callbacks(app: dash.Dash):
             "bond_std_dev_pct": 5.0, # default
             "random_seed": int(mc_seed) if mc_seed is not None and str(mc_seed).strip() != "" else None,
         }
-
 
         return profile_data, _toast("Profile settings updated locally.")
 

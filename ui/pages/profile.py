@@ -56,10 +56,10 @@ def _person_form(owner: str, person: Person, label: str) -> html.Div:
     from engine.social_security import fra_in_years, adjusted_monthly_benefit
     from datetime import date
 
-    curr_age = int(person.current_age or 50)
+    curr_age = person.current_age
     claim_age = float(person.ss_claiming_age or 67)
 
-    birth_yr   = date.today().year - curr_age
+    birth_yr   = person.birth_year
     fra        = fra_in_years(birth_yr)
     adj_benefit = adjusted_monthly_benefit(
         ss_at_fra, claim_age, birth_yr
@@ -79,24 +79,54 @@ def _person_form(owner: str, person: Person, label: str) -> html.Div:
                 [
                     dbc.Col(
                         input_row(
-                            label="Current Age",
-                            input_id=f"{pfx}-age",
-                            value=person.current_age,
-                            min_val=18, max_val=100, step=1,
-                            tooltip="Your age as of today.",
-                            suffix=" yrs",
+                            label="Birth Year",
+                            input_id=f"{pfx}-birth-year",
+                            value=person.birth_year,
+                            min_val=1920, max_val=2026, step=1,
+                            tooltip="Year you were born.",
+                        ),
+                        xs=12, md=8,
+                    ),
+                    dbc.Col(
+                        input_row(
+                            label="Month",
+                            input_id=f"{pfx}-birth-month",
+                            value=person.birth_month,
+                            min_val=1, max_val=12, step=1,
+                            tooltip="Month of birth (1-12).",
+                        ),
+                        xs=12, md=4,
+                    ),
+                ],
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        html.Div([
+                            html.Span("Computed Age: ", style={"color": "var(--text-secondary)", "fontSize": "12px"}),
+                            html.Span(f"{curr_age} yrs", style={"color": "var(--accent-blue)", "fontWeight": "600", "fontSize": "13px"}),
+                        ], style={"padding": "4px 0 12px 0"}),
+                        width=12
+                    )
+                ]
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        input_row(
+                            label="Retirement Year",
+                            input_id=f"{pfx}-retirement-year",
+                            value=person.retirement_year,
+                            min_val=2024, max_val=2100, step=1,
+                            tooltip="The year you plan to stop working.",
                         ),
                         xs=12, md=6,
                     ),
                     dbc.Col(
-                        input_row(
-                            label="Retirement Age",
-                            input_id=f"{pfx}-retirement-age",
-                            value=person.retirement_age,
-                            min_val=18, max_val=80, step=1,
-                            tooltip="Target age to stop working.",
-                            suffix=" yrs",
-                        ),
+                        html.Div([
+                            html.Span("Retirement Age: ", style={"color": "var(--text-secondary)", "fontSize": "12px"}),
+                            html.Span(f"{person.retirement_age} yrs", style={"color": "var(--accent-blue)", "fontWeight": "600", "fontSize": "13px"}),
+                        ], style={"padding": "36px 0 0 0"}),
                         xs=12, md=6,
                     ),
                 ],
@@ -286,8 +316,8 @@ def _profile_summary(profile: PlanProfile) -> html.Div:
     from datetime import date
 
     current_year = date.today().year
-    birth_yr_self   = current_year - int(profile.self_person.current_age or 50)
-    birth_yr_spouse = current_year - int(profile.spouse.current_age or 50)
+    birth_yr_self   = profile.self_person.birth_year
+    birth_yr_spouse = profile.spouse.birth_year
 
     adj_self   = adjusted_monthly_benefit(
         float(profile.self_person.ss_monthly_benefit or 0),
@@ -298,8 +328,8 @@ def _profile_summary(profile: PlanProfile) -> html.Div:
         float(profile.spouse.ss_claiming_age or 67), birth_yr_spouse,
     )
 
-    y_to_ret_slf = max(0, int(profile.self_person.retirement_age or 0) - int(profile.self_person.current_age or 50))
-    y_to_ret_sp  = max(0, int(profile.spouse.retirement_age or 0) - int(profile.spouse.current_age or 50))
+    y_to_ret_slf = max(0, int(profile.self_person.retirement_age or 0) - profile.self_person.current_age)
+    y_to_ret_sp  = max(0, int(profile.spouse.retirement_age or 0) - profile.spouse.current_age)
 
     return summary_row([
         ("Years to retirement (you)",    f"{y_to_ret_slf} yrs",  "blue"),

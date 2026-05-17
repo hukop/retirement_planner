@@ -50,13 +50,29 @@ class Person:
     """One individual (self or spouse)."""
 
     name: str = "Self"
-    current_age: int = 50
-    retirement_age: int = 65
+    birth_year: int = 1975
+    birth_month: int = 1
+    retirement_year: int = 2040
     life_expectancy: int = 90
 
     # Social Security
     ss_monthly_benefit: float = 0.0  # estimated benefit at Full Retirement Age
     ss_claiming_age: int = 67        # 62–70
+
+    @property
+    def retirement_age(self) -> int:
+        """Calculate age at retirement."""
+        return self.retirement_year - self.birth_year
+
+    @property
+    def current_age(self) -> int:
+        """Calculate current age based on birth year and month."""
+        from datetime import date
+        today = date.today()
+        age = today.year - self.birth_year
+        if today.month < self.birth_month:
+            age -= 1
+        return age
 
 
 # ---------------------------------------------------------------------------
@@ -244,27 +260,19 @@ class PlanProfile:
     # ------------------------------------------------------------------
     @property
     def retirement_year_self(self) -> int:
-        """Calendar year when self retires (approximate — assumes today's year)."""
-        from datetime import date
-        ret_age = int(self.self_person.retirement_age or 65)
-        cur_age = int(self.self_person.current_age or 50)
-        return date.today().year + (ret_age - cur_age)
+        """Calendar year when self retires."""
+        return self.self_person.retirement_year
 
     @property
     def retirement_year_spouse(self) -> int:
         """Calendar year when spouse retires."""
-        from datetime import date
-        ret_age = int(self.spouse.retirement_age or 65)
-        cur_age = int(self.spouse.current_age or 50)
-        return date.today().year + (ret_age - cur_age)
+        return self.spouse.retirement_year
 
     @property
     def plan_end_year(self) -> int:
         """Last year of the plan = max life expectancy of both people."""
-        from datetime import date
-        curr_yr = date.today().year
-        end_self = curr_yr + (int(self.self_person.life_expectancy or 90) - int(self.self_person.current_age or 50))
-        end_spouse = curr_yr + (int(self.spouse.life_expectancy or 90) - int(self.spouse.current_age or 50))
+        end_self = self.self_person.birth_year + self.self_person.life_expectancy
+        end_spouse = self.spouse.birth_year + self.spouse.life_expectancy
         return max(end_self, end_spouse)
 
     @property
@@ -337,16 +345,18 @@ class PlanProfile:
         return cls(
             self_person=Person(
                 name="You",
-                current_age=50,
-                retirement_age=62,
+                birth_year=1974,
+                birth_month=5,
+                retirement_year=2036,
                 life_expectancy=90,
                 ss_monthly_benefit=2800,
                 ss_claiming_age=67,
             ),
             spouse=Person(
                 name="Spouse",
-                current_age=48,
-                retirement_age=62,
+                birth_year=1976,
+                birth_month=8,
+                retirement_year=2038,
                 life_expectancy=92,
                 ss_monthly_benefit=2200,
                 ss_claiming_age=67,

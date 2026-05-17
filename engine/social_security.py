@@ -294,14 +294,15 @@ def compute_ss_benefit(person: Person, current_year: int | None = None) -> SSBen
     claim_age = float(person.ss_claiming_age or 67)
     curr_age = float(person.current_age or 50)
     
-    birth_year = current_year - int(curr_age)
+    birth_year = person.birth_year
     fra        = fra_in_years(birth_year)
     factor     = claiming_factor(claim_age, birth_year)
     adjusted   = round(pia * factor, 2)
 
-    # Claim year = the year the person reaches their claiming age
-    years_until_claim = max(0, int(claim_age - curr_age))
-    claim_year = current_year + years_until_claim
+    # Claim year = calendar year the person reaches their claiming age
+    claim_year = person.birth_year + int(claim_age)
+    # If the birth month is late in the year, they might reach the age late in that year.
+    # We keep it simple (year granularity) but this is now accurate to the year.
 
     return SSBenefit(
         pia_monthly=pia,
