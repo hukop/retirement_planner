@@ -197,48 +197,122 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
     fig = go.Figure()
     nws = result.terminal_net_worths
 
-    fig.add_trace(go.Histogram(
-        x=nws,
-        nbinsx=40,
-        marker=dict(
-            color=[_C["worst"] if v < 0 else _C["p50"] for v in nws],
-            line=dict(color="rgba(0,0,0,0)", width=0),
-        ),
-        opacity=0.75,
-        name="Terminal Net Worth",
-        hovertemplate="$%{x:,.0f}: %{y} trials<extra></extra>",
-    ))
+    # 1. Separate Ruin ($0) and Surviving (> $0) trials
+    ruin_count = sum(1 for v in nws if v <= 0)
+    surviving_nws = [v for v in nws if v > 0]
 
-    # Ruin boundary
+    max_nw = max(nws) if nws else 1_000_000.0
+    max_sqrt = np.sqrt(max(max_nw, 1_000_000.0))
+
+    bin_w = max_sqrt / 39
+
+    if ruin_count > 0:
+        fig.add_trace(go.Bar(
+            x=[-bin_w / 2],
+            y=[ruin_count],
+            width=[bin_w],
+            marker=dict(color=_C["worst"], line=dict(color="rgba(0,0,0,0)", width=0)),
+            opacity=0.85,
+            name="Ruin ($0)",
+            hovertemplate="Ruin ($0): %{y} trials<extra></extra>",
+        ))
+
+    if surviving_nws:
+        sqrt_surviving = [np.sqrt(v) for v in surviving_nws]
+
+        # Uniform-width bins in sqrt space
+        bin_edges_full = np.linspace(0, max_sqrt, 40)
+        bin_w = bin_edges_full[1] - bin_edges_full[0]
+
+        # Find which bin contains the 90th percentile; merge everything from there
+        p90_val = np.percentile(surviving_nws, 90)
+        p90_sqrt = np.sqrt(p90_val)
+        merge_idx = np.searchsorted(bin_edges_full, p90_sqrt, side='right') - 1
+        merge_idx = max(0, min(merge_idx, len(bin_edges_full) - 2))
+
+        # Keep edges up to and including the merged bin (same uniform width)
+        bin_edges = bin_edges_full[:merge_idx + 2]
+
+        counts, _ = np.histogram(sqrt_surviving, bins=bin_edges)
+        # Fold data above the last edge into the merged bin
+        counts[-1] += sum(1 for v in sqrt_surviving if v > bin_edges[-1])
+
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        bin_widths = bin_edges[1:] - bin_edges[:-1]
+
+        hover_texts = []
+        for i in range(len(counts)):
+            left_val = bin_edges[i] ** 2
+            right_val = bin_edges[i+1] ** 2
+            if i == len(counts) - 1:
+                hover_texts.append(f"{_fmt_currency(p90_val)}+: {counts[i]} trials (top 10%)")
+            else:
+                hover_texts.append(f"{_fmt_currency(left_val)} - {_fmt_currency(right_val)}: {counts[i]} trials")
+
+        fig.add_trace(go.Bar(
+            x=bin_centers,
+            y=counts,
+            width=bin_widths,
+            marker=dict(color=_C["p50"], line=dict(color="rgba(0,0,0,0)", width=0)),
+            opacity=0.75,
+            name="Surviving (> $0)",
+            text=hover_texts,
+            hovertemplate="%{text}<extra></extra>",
+        ))
+
+    # Ruin boundary (dashed line at exactly 0)
     fig.add_vline(
         x=0,
         line=dict(color="rgba(248,113,113,0.8)", width=2, dash="dash"),
         annotation_text="Ruin → $0",
-        annotation_position="top right",
+        annotation_position="top left",
         annotation_font=dict(color="#f87171", size=11),
     )
 
     # Median annotation
     p50 = float(np.percentile(nws, 50))
+    if p50 > 0:
+        p50_x = np.sqrt(p50)
+        p50_text = f"Median: {_fmt_currency(p50)}"
+    else:
+        p50_x = -bin_w / 2
+        p50_text = "Median: $0"
+
     fig.add_vline(
-        x=p50,
+        x=p50_x,
         line=dict(color=_C["p50"], width=1.5, dash="dot"),
-        annotation_text=f"Median: {_fmt_currency(p50)}",
-        annotation_position="top left",
+        annotation_text=p50_text,
+        annotation_position="top right",
         annotation_font=dict(color=_C["p50"], size=11),
     )
 
-    fail_count = sum(1 for v in nws if v <= 0)
-    fail_pct   = fail_count / len(nws) * 100
+    # Cap x-axis at the last (merged) bin's right edge
+    if surviving_nws:
+        x_max_sqrt = bin_edges[-1]
+    else:
+        x_max_sqrt = max_sqrt
+
+    nice_ticks = [0, 1e6, 5e6, 1e7, 2.5e7, 5e7, 1e8, 2.5e8, 5e8, 1e9, 2.5e9, 5e9, 1e10]
+    tickvals = []
+    ticktext = []
+    for val in nice_ticks:
+        sqrt_val = np.sqrt(val)
+        if sqrt_val <= x_max_sqrt * 1.1:
+            tickvals.append(sqrt_val)
+            ticktext.append("$0" if val == 0 else _fmt_currency(val))
 
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
-        "showlegend": False,
+        "showlegend": True,
+        "barmode": "overlay",
         "height": 320,
         "yaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["yaxis"],
                   "tickprefix": "", "tickformat": ",d", "title": "# Trials"},
         "xaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["xaxis"],
-                  "tickprefix": "$", "tickformat": ",.0f", "title": "Terminal Net Worth"},
+                  "title": "Terminal Net Worth (Square Root Scale)",
+                  "tickvals": tickvals,
+                  "ticktext": ticktext,
+                  "range": [-1.5 * bin_w, x_max_sqrt + 1.5 * bin_w]},
     })
     fig.update_layout(**layout)
     return fig
@@ -414,7 +488,6 @@ def _results_section(result: MonteCarloResult, retire_yr: int) -> html.Div:
         # Fan chart (full width)
         section_card(
             "Net Worth Downside Risk Chart",
-            subtitle="Shows where the bottom 50% of outcomes land. The amber zone is the moderate downside (10th–50th %ile); the red zone is the severe downside (5th–10th %ile).",
             children=[dcc.Graph(figure=fan_fig, config={"displayModeBar": False})],
         ),
         html.Div(style={"height": "16px"}),

@@ -161,7 +161,7 @@ class TestPlanProfileSerialization(unittest.TestCase):
         d = {"self_person": {"name": "Alice", "bogus_key": 123}}
         p = PlanProfile.from_dict(d)
         self.assertEqual(p.self_person.name, "Alice")
-        self.assertEqual(p.self_person.current_age, 50)  # default
+        self.assertEqual(p.self_person.current_age, date.today().year - 1975)  # default
 
     def test_from_dict_none_fallback(self):
         p = PlanProfile.from_dict(None)
@@ -391,14 +391,14 @@ class TestBenefitInYear(unittest.TestCase):
 
 class TestComputeSSBenefit(unittest.TestCase):
     def test_benefit_structure(self):
-        p = Person(current_age=60, ss_monthly_benefit=2_500, ss_claiming_age=67)
+        p = Person(birth_year=1965, ss_monthly_benefit=2_500, ss_claiming_age=67)
         b = compute_ss_benefit(p, current_year=2025)
         self.assertEqual(b.pia_monthly, 2_500)
         self.assertEqual(b.adjusted_monthly, 2_500)
         self.assertEqual(b.claim_year, 2032)
 
     def test_early_claim(self):
-        p = Person(current_age=60, ss_monthly_benefit=2_500, ss_claiming_age=62)
+        p = Person(birth_year=1965, ss_monthly_benefit=2_500, ss_claiming_age=62)
         b = compute_ss_benefit(p, current_year=2025)
         self.assertLess(b.adjusted_monthly, 2_500)
         self.assertEqual(b.claim_year, 2027)

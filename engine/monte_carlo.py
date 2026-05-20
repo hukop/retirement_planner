@@ -199,22 +199,14 @@ def generate_return_sequences(
 # Mixed return sequence (blends equity/bond per account bucket)
 # ---------------------------------------------------------------------------
 
-def _build_blended_return_sequence(
-    equity_seq: np.ndarray,   # shape (num_months,)
-    bond_seq:   np.ndarray,   # shape (num_months,)
-    profile:    PlanProfile,
-) -> np.ndarray:
+def _compute_blend_weights(
+    profile: PlanProfile,
+) -> tuple[float, float]:
     """
-    Build a single blended monthly return sequence for one trial by computing
-    a portfolio-weighted average of equity and bond returns.
+    Compute portfolio-weighted equity/bond blend weights from initial balances.
 
-    The weight is: equity_weight = (total equity balance) / (total portfolio balance)
-    at the start of the simulation, using configured account balances.
-
-    For the Monte Carlo engine, we pass this blended sequence as the
-    return_overrides to ProjectionEngine, which applies it uniformly to all
-    accounts.  This is a reasonable simplification — a more granular
-    per-account override would require deeper changes to the engine loop.
+    Returns (eq_weight, bond_weight) that sum to 1.0.
+    If total is 0, returns (1.0, 0.0) as a fallback.
     """
     total_equity = sum(
         a.balance for a in profile.accounts
@@ -227,12 +219,24 @@ def _build_blended_return_sequence(
     total = total_equity + total_bond
 
     if total <= 0:
-        return equity_seq  # fallback
+        return 1.0, 0.0  # fallback: all equity
 
-    eq_weight   = total_equity / total
-    bond_weight = total_bond   / total
+    return total_equity / total, total_bond / total
 
-    return eq_weight * equity_seq + bond_weight * bond_seq
+
+def _build_all_blended_sequences(
+    equity_seqs: np.ndarray,  # shape (num_trials, num_months)
+    bond_seqs:   np.ndarray,  # shape (num_trials, num_months)
+    profile:     PlanProfile,
+) -> np.ndarray:
+    """
+    Build blended monthly return sequences for ALL trials at once via
+    vectorized NumPy operations.
+
+    Returns shape (num_trials, num_months).
+    """
+    eq_weight, bond_weight = _compute_blend_weights(profile)
+    return eq_weight * equity_seqs + bond_weight * bond_seqs
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +331,7 @@ def _build_partial_result(
     terminal_net_worths: list[float],
     ruin_years: list[int | None],
     all_annual_nw: list[list[float]],
-    all_annual_dfs: list[pd.DataFrame],
+    all_annual_dfs: Optional[list[pd.DataFrame]],
     det_annual: pd.DataFrame,
     years: list[int],
     num_months: int,
@@ -351,6 +355,15 @@ def _build_partial_result(
     p50 = float(np.percentile(term_array, 50))
     median_idx = int(np.argmin(np.abs(term_array - p50)))
 
+    worst_trial_df = []
+    best_trial_df = []
+    median_trial_df = []
+
+    if all_annual_dfs and len(all_annual_dfs) > max(worst_idx, best_idx, median_idx):
+        worst_trial_df = all_annual_dfs[worst_idx].to_dict("records")
+        best_trial_df = all_annual_dfs[best_idx].to_dict("records")
+        median_trial_df = all_annual_dfs[median_idx].to_dict("records")
+
     return MonteCarloResult(
         num_trials=n_completed,
         num_months=num_months,
@@ -360,9 +373,9 @@ def _build_partial_result(
         terminal_net_worths=[float(x) for x in sorted(terminal_net_worths)],
         percentile_labels=pct_labels,
         net_worth_percentiles=net_worth_percentiles,
-        median_trial_df=all_annual_dfs[median_idx].to_dict("records"),
-        worst_trial_df=all_annual_dfs[worst_idx].to_dict("records"),
-        best_trial_df=all_annual_dfs[best_idx].to_dict("records"),
+        median_trial_df=median_trial_df,
+        worst_trial_df=worst_trial_df,
+        best_trial_df=best_trial_df,
         deterministic_df=det_annual.to_dict("records"),
         ruin_years=[int(x) if x is not None else None for x in ruin_years],
         num_trials_actual=n_completed,
@@ -409,45 +422,44 @@ def run_monte_carlo(
     start_year  = det_engine.start_year
     num_months  = (profile.plan_end_year - start_year + 1) * 12
     years       = sorted(det_annual["year"].unique().tolist())
+    det_annual_nw = dict(zip(det_annual["year"], det_annual["net_worth_eoy"]))
 
     # ── Step 2: Generate all return sequences at once ─────────────────────
     equity_seqs, bond_seqs = generate_return_sequences(config, num_months)
 
-    # ── Step 3: Run N trials ──────────────────────────────────────────────
+    # ── Step 3: Vectorized blending (all trials at once) ──────────────────
+    all_blended = _build_all_blended_sequences(equity_seqs, bond_seqs, profile)
+
+    # ── Step 4: Run N trials (Fast-Path Mode) ─────────────────────────────
     terminal_net_worths: list[float]          = []
     ruin_years:          list[Optional[int]]  = []
     all_annual_nw: list[list[float]] = []
-    all_annual_dfs: list[pd.DataFrame] = []
 
     _PROGRESS_INTERVAL = 25   # report every N trials
 
     for trial_idx in range(n):
-        blended = _build_blended_return_sequence(
-            equity_seqs[trial_idx],
-            bond_seqs[trial_idx],
-            profile,
-        )
-
-        # Compute adaptive expense multipliers if enabled
-        exp_mults = None
-        if adaptive_spending:
-            exp_mults = _compute_expense_multipliers(blended, num_months)
-
         engine = ProjectionEngine(
             profile,
-            return_overrides=blended,
-            expense_multipliers=exp_mults,
+            return_overrides=all_blended[trial_idx],
+            det_annual_nw=det_annual_nw,
+            adaptive_spending=adaptive_spending,
+            precomputed_salary_self=det_engine.precomputed_salary_self,
+            precomputed_salary_spouse=det_engine.precomputed_salary_spouse,
+            precomputed_ss_self=det_engine.precomputed_ss_self,
+            precomputed_ss_spouse=det_engine.precomputed_ss_spouse,
+            precomputed_expenses=det_engine.precomputed_expenses,
+            precomputed_expense_totals=det_engine.precomputed_expense_totals,
+            precomputed_re_equity=det_engine.precomputed_re_equity,
+            precomputed_rental_net=det_engine.precomputed_rental_net,
+            precomputed_income_totals=det_engine.precomputed_income_totals,
         )
-        _, annual_df = engine.run()
+        _, fast_res = engine.run(fast_path=True)
+        eoy_nws, r_yr = fast_res
 
-        terminal_nw = float(annual_df["net_worth_eoy"].iloc[-1])
+        terminal_nw = float(eoy_nws[-1])
         terminal_net_worths.append(terminal_nw)
-        ruin_years.append(_find_ruin_year(annual_df))
-
-        nw_series = annual_df.set_index("year")["net_worth_eoy"]
-        nw_aligned = [float(nw_series.get(yr, 0.0)) for yr in years]
-        all_annual_nw.append(nw_aligned)
-        all_annual_dfs.append(annual_df)
+        ruin_years.append(r_yr)
+        all_annual_nw.append(eoy_nws)
 
         completed = trial_idx + 1
 
@@ -456,7 +468,7 @@ def run_monte_carlo(
             if completed % _PROGRESS_INTERVAL == 0 or completed == n:
                 progress_callback(completed, n)
 
-        # Fire intermediate results callback
+        # Fire intermediate results callback (passes None/empty for detailed dfs)
         if (intermediate_callback is not None
                 and intermediate_interval > 0
                 and completed >= 2  # need at least 2 trials for percentiles
@@ -464,15 +476,48 @@ def run_monte_carlo(
                 and completed != n):  # skip on last trial (final result handles it)
             partial = _build_partial_result(
                 terminal_net_worths, ruin_years, all_annual_nw,
-                all_annual_dfs, det_annual, years, num_months,
+                None, det_annual, years, num_months,
                 start_year, config, completed,
             )
             intermediate_callback(partial)
 
-    # ── Step 4: Aggregate statistics ─────────────────────────────────────
+    # ── Step 5: Re-run Worst, Best, and Median trials in High-Detail ──────
+    term_array = np.array(terminal_net_worths)
+    sorted_indices = np.argsort(term_array)
+    worst_idx      = int(sorted_indices[0])
+    best_idx       = int(sorted_indices[-1])
+    p50 = float(np.percentile(term_array, 50))
+    median_idx = int(np.argmin(np.abs(term_array - p50)))
+
+    detailed_dfs = {}
+    for idx in {worst_idx, best_idx, median_idx}:
+        slow_engine = ProjectionEngine(
+            profile,
+            return_overrides=all_blended[idx],
+            det_annual_nw=det_annual_nw,
+            adaptive_spending=adaptive_spending,
+            precomputed_salary_self=det_engine.precomputed_salary_self,
+            precomputed_salary_spouse=det_engine.precomputed_salary_spouse,
+            precomputed_ss_self=det_engine.precomputed_ss_self,
+            precomputed_ss_spouse=det_engine.precomputed_ss_spouse,
+            precomputed_expenses=det_engine.precomputed_expenses,
+            precomputed_expense_totals=det_engine.precomputed_expense_totals,
+            precomputed_re_equity=det_engine.precomputed_re_equity,
+            precomputed_rental_net=det_engine.precomputed_rental_net,
+            precomputed_income_totals=det_engine.precomputed_income_totals,
+        )
+        _, slow_annual_df = slow_engine.run(fast_path=False)
+        detailed_dfs[idx] = slow_annual_df
+
+    # Construct mock all_annual_dfs containing only the target trial DataFrames
+    all_annual_dfs_mock = [None] * n
+    for idx, df in detailed_dfs.items():
+        all_annual_dfs_mock[idx] = df
+
+    # ── Step 6: Aggregate final statistics ────────────────────────────────
     return _build_partial_result(
         terminal_net_worths, ruin_years, all_annual_nw,
-        all_annual_dfs, det_annual, years, num_months,
+        all_annual_dfs_mock, det_annual, years, num_months,
         start_year, config, n,
     )
 

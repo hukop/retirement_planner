@@ -66,7 +66,7 @@ from engine.taxes import calculate_taxes, TaxResult
 from engine.social_security import compute_ss_benefit, SSBenefit
 from engine.investments import AccountState, build_portfolio, grow_all, contribute_all
 from engine.real_estate import PropertyState, build_property_portfolio, step_all_month
-from engine.withdrawal import execute_annual_withdrawals, AnnualWithdrawalPlan
+from engine.withdrawal import execute_annual_withdrawals, AnnualWithdrawalPlan, _accounts_in_order
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +130,17 @@ class ProjectionEngine:
         profile: PlanProfile,
         return_overrides: Optional[np.ndarray] = None,
         expense_multipliers: Optional[np.ndarray] = None,
+        det_annual_nw: Optional[dict[int, float]] = None,
+        adaptive_spending: bool = False,
+        precomputed_salary_self: Optional[np.ndarray] = None,
+        precomputed_salary_spouse: Optional[np.ndarray] = None,
+        precomputed_ss_self: Optional[np.ndarray] = None,
+        precomputed_ss_spouse: Optional[np.ndarray] = None,
+        precomputed_expenses: Optional[list[dict]] = None,
+        precomputed_expense_totals: Optional[np.ndarray] = None,
+        precomputed_re_equity: Optional[np.ndarray] = None,
+        precomputed_rental_net: Optional[np.ndarray] = None,
+        precomputed_income_totals: Optional[np.ndarray] = None,
     ):
         """
         Parameters
@@ -145,18 +156,35 @@ class ProjectionEngine:
                           scaling factors.  A value of 0.85 means expenses
                           are reduced by 15% that month; 1.07 means +7%.
                           When None (default), expenses are unscaled.
+        det_annual_nw   : optional dict mapping year -> EOY net worth of baseline
+                          deterministic projection, used for adaptive spending safeguard.
+        adaptive_spending: if True, enables Net Worth Safeguarded adaptive spending in-loop.
         """
         self.profile              = profile
         self.start_year           = date.today().year
         self.return_overrides     = return_overrides
         self.expense_multipliers  = expense_multipliers
+        self.det_annual_nw        = det_annual_nw
+        self.adaptive_spending    = adaptive_spending
+
+        # Injected precomputed arrays
+        self.precomputed_salary_self   = precomputed_salary_self
+        self.precomputed_salary_spouse = precomputed_salary_spouse
+        self.precomputed_ss_self       = precomputed_ss_self
+        self.precomputed_ss_spouse     = precomputed_ss_spouse
+        self.precomputed_expenses       = precomputed_expenses
+        self.precomputed_expense_totals = precomputed_expense_totals
+        self.precomputed_re_equity     = precomputed_re_equity
+        self.precomputed_rental_net    = precomputed_rental_net
+        self.precomputed_income_totals = precomputed_income_totals
 
     # ------------------------------------------------------------------ #
     # Public API                                                          #
     # ------------------------------------------------------------------ #
-    def run(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def run(self, fast_path: bool = False) -> tuple[Optional[pd.DataFrame], pd.DataFrame | tuple[list[float], Optional[int]]]:
         """
         Execute the projection and return (monthly_df, annual_df).
+        If fast_path is True, returns (None, (eoy_net_worths, ruin_year)).
 
         Returns
         -------
@@ -167,7 +195,7 @@ class ProjectionEngine:
 
         # ── Initialise simulation state ──────────────────────────────────
         invest_portfolio  = build_portfolio(p.accounts)
-        re_portfolio      = build_property_portfolio(p.properties)
+        re_portfolio      = build_property_portfolio(p.properties) if self.precomputed_expenses is None else None
 
         # Pre-compute SS benefit profiles (adj. for claiming age)
         ss_self   = compute_ss_benefit(p.self_person,  self.start_year)
@@ -180,10 +208,136 @@ class ProjectionEngine:
         end_year = p.plan_end_year
         n_months = (end_year - self.start_year + 1) * 12
 
+        # ── Pre-compute salaries, SS, base expenses, and Real Estate for all months ───
+        if self.precomputed_expenses is not None:
+            precomputed_salary_self = self.precomputed_salary_self
+            precomputed_salary_spouse = self.precomputed_salary_spouse
+            precomputed_ss_self = self.precomputed_ss_self
+            precomputed_ss_spouse = self.precomputed_ss_spouse
+            precomputed_expenses = self.precomputed_expenses
+            precomputed_expense_totals = self.precomputed_expense_totals
+            precomputed_re_equity = self.precomputed_re_equity
+            precomputed_rental_net = self.precomputed_rental_net
+            precomputed_income_totals = self.precomputed_income_totals
+
+            self_start_age = p.self_person.current_age
+            spouse_start_age = p.spouse.current_age
+            self_retire_age = p.self_person.retirement_age
+            spouse_retire_age = p.spouse.retirement_age
+        else:
+            precomputed_salary_self = np.zeros(n_months)
+            precomputed_salary_spouse = np.zeros(n_months)
+            precomputed_ss_self = np.zeros(n_months)
+            precomputed_ss_spouse = np.zeros(n_months)
+            precomputed_expenses = []
+            precomputed_re_equity = np.zeros(n_months)
+            precomputed_rental_net = np.zeros(n_months)
+
+            self_start_age = p.self_person.current_age
+            spouse_start_age = p.spouse.current_age
+            self_retire_age = p.self_person.retirement_age
+            spouse_retire_age = p.spouse.retirement_age
+
+            cola = p.inflation_rate_pct / 100
+
+            # Deterministic property portfolio for precomputation
+            re_portfolio_det = build_property_portfolio(p.properties)
+
+            for m in range(n_months):
+                year_det  = self.start_year + m // 12
+                month_det = m % 12 + 1
+                self_age_int_det   = self_start_age + m // 12
+                spouse_age_int_det = spouse_start_age + m // 12
+
+                self_working_det   = self_age_int_det  < self_retire_age
+                spouse_working_det = spouse_age_int_det < spouse_retire_age
+                both_retired_det   = (not self_working_det) and (not spouse_working_det)
+
+                # Real Estate Step (Appreciate + Amortize)
+                precomputed_re_equity[m] = sum(s.net_equity for s in re_portfolio_det)
+                precomputed_rental_net[m] = sum(s.net_monthly_rental_income for s in re_portfolio_det)
+                step_all_month(re_portfolio_det, current_year=year_det)
+
+                # Social Security
+                if year_det >= ss_self.claim_year:
+                    precomputed_ss_self[m] = ss_self.monthly_in_year(year_det, cola)
+                if year_det >= ss_spouse.claim_year:
+                    precomputed_ss_spouse[m] = ss_spouse.monthly_in_year(year_det, cola)
+
+                # Salaries
+                for src in p.incomes:
+                    if src.owner == "self" and self_working_det:
+                        start_age = src.start_age or 0
+                        end_age   = src.end_age or 100
+                        if self_age_int_det >= start_age and self_age_int_det < end_age:
+                            years_of_raises = max(0, year_det - self.start_year)
+                            annual = src.annual_amount * (1 + src.annual_raise_pct / 100) ** years_of_raises
+                            precomputed_salary_self[m] += annual / 12
+                    elif src.owner == "spouse" and spouse_working_det:
+                        start_age = src.start_age or 0
+                        end_age   = src.end_age or 100
+                        if spouse_age_int_det >= start_age and spouse_age_int_det < end_age:
+                            years_of_raises = max(0, year_det - self.start_year)
+                            annual = src.annual_amount * (1 + src.annual_raise_pct / 100) ** years_of_raises
+                            precomputed_salary_spouse[m] += annual / 12
+
+                # Expenses
+                infl_det = (1 + p.inflation_rate_pct / 100) ** (year_det - self.start_year)
+
+                cat_totals: dict[str, float] = {}
+                for exp_item in p.expenses:
+                    base = exp_item.monthly_amount
+                    if both_retired_det:
+                        base = base * (exp_item.retirement_pct / 100)
+                    if exp_item.inflation_adjusted:
+                        base = base * infl_det
+                    cat_totals[exp_item.category] = cat_totals.get(exp_item.category, 0.0) + base
+
+                one_time_det = 0.0
+                if month_det == 1:
+                    for ote in p.one_time_expenses:
+                        if ote.year == year_det:
+                            amt = ote.amount
+                            if ote.inflation_adjusted:
+                                amt *= infl_det
+                            one_time_det += amt
+
+                recurring_total = sum(cat_totals.values())
+                grand_total     = recurring_total + one_time_det
+
+                exp_dict = {f"expense_{cat}": round(v, 2) for cat, v in cat_totals.items()}
+                exp_dict["expense_one_time"] = round(one_time_det, 2)
+                exp_dict["expense_total"]    = round(grand_total, 2)
+                precomputed_expenses.append(exp_dict)
+
+            precomputed_expense_totals = np.array([e["expense_total"] for e in precomputed_expenses])
+            precomputed_income_totals = (precomputed_salary_self + precomputed_salary_spouse +
+                                       precomputed_ss_self + precomputed_ss_spouse +
+                                       precomputed_rental_net)
+
+            # Cache precomputed arrays on self for other engines to reuse
+            self.precomputed_salary_self   = precomputed_salary_self
+            self.precomputed_salary_spouse = precomputed_salary_spouse
+            self.precomputed_ss_self       = precomputed_ss_self
+            self.precomputed_ss_spouse     = precomputed_ss_spouse
+            self.precomputed_expenses      = precomputed_expenses
+            self.precomputed_expense_totals= precomputed_expense_totals
+            self.precomputed_re_equity     = precomputed_re_equity
+            self.precomputed_rental_net    = precomputed_rental_net
+            self.precomputed_income_totals = precomputed_income_totals
+
         # Bootstrap year state
         yr_state = self._bootstrap_year_state(self.start_year)
 
         rows: list[dict] = []
+        eoy_net_worths: list[float] = []
+        ruin_year: Optional[int] = None
+
+        trial_eoy_net_worths: dict[int, float] = {}
+
+        # Cache portfolio ordering and start net worth for the loop
+        ordered_portfolio = _accounts_in_order(invest_portfolio)
+        start_net_worth = sum(a.balance for a in p.accounts) + sum(pr.net_equity for pr in p.properties)
 
         # Prior year-end balances for IRS-correct RMD calculation.
         # Bootstrap from starting balances (used in year 1 before Jan capture runs).
@@ -196,20 +350,13 @@ class ProjectionEngine:
             month = m % 12 + 1         # 1–12
 
             # ── Ages (decimal) ───────────────────────────────────────────
-            self_age_dec   = p.self_person.current_age  + m / 12
-            spouse_age_dec = p.spouse.current_age       + m / 12
-            self_age_int   = p.self_person.current_age  + m // 12
-            spouse_age_int = p.spouse.current_age       + m // 12
+            self_age_int   = self_start_age  + m // 12
+            spouse_age_int = spouse_start_age       + m // 12
 
             # ── Working / retired ────────────────────────────────────────
-            self_working   = self_age_int  < p.self_person.retirement_age
-            spouse_working = spouse_age_int < p.spouse.retirement_age
+            self_working   = self_age_int  < self_retire_age
+            spouse_working = spouse_age_int < spouse_retire_age
             both_retired   = (not self_working) and (not spouse_working)
-            is_working     = {"self": self_working, "spouse": spouse_working}
-
-            # ── SS active ────────────────────────────────────────────────
-            ss_self_active   = year >= ss_self.claim_year
-            ss_spouse_active = year >= ss_spouse.claim_year
 
             # ── January bookkeeping ──────────────────────────────────────
             if month == 1:
@@ -222,62 +369,112 @@ class ProjectionEngine:
                     prior_eff_rate=yr_state.eff_rate_eoy,
                 )
                 # Capture prior-year-end balances for IRS-correct RMD calculation.
-                # At January 1 the portfolio has not yet grown this month, so
-                # these represent the December 31 snapshot of the prior year.
                 prior_balances = {
                     s.name: s.balance
                     for s in invest_portfolio
                 }
 
-            infl = _inflation_factor(self.start_year, year, p.inflation_rate_pct)
+            # ── 1. & 2. Monthly income & expenses ────────────────────────
+            if fast_path:
+                income_total = precomputed_income_totals[m]
+                base_expense_total = precomputed_expense_totals[m]
+            else:
+                rental_net = precomputed_rental_net[m]
+                sal_self = precomputed_salary_self[m]
+                sal_spouse = precomputed_salary_spouse[m]
+                ss_self_mo = precomputed_ss_self[m]
+                ss_spouse_mo = precomputed_ss_spouse[m]
 
-            # ── 1. Monthly income ────────────────────────────────────────
-            inc = self._monthly_income(
-                year=year, month=month,
-                self_age_int=self_age_int, spouse_age_int=spouse_age_int,
-                self_working=self_working, spouse_working=spouse_working,
-                ss_self=ss_self, ss_spouse=ss_spouse,
-                ss_self_active=ss_self_active, ss_spouse_active=ss_spouse_active,
-                re_portfolio=re_portfolio,
-                infl=infl,
-            )
+                inc = {
+                    "income_salary_self": sal_self,
+                    "income_salary_spouse": sal_spouse,
+                    "income_ss_self": ss_self_mo,
+                    "income_ss_spouse": ss_spouse_mo,
+                    "income_rental_net": rental_net,
+                    "income_other": 0.0,
+                    "income_total": sal_self + sal_spouse + ss_self_mo + ss_spouse_mo + rental_net
+                }
+                income_total = inc["income_total"]
+                
+                exp = precomputed_expenses[m].copy()
+                base_expense_total = exp["expense_total"]
 
-            # ── 2. Monthly expenses ──────────────────────────────────────
-            exp = self._monthly_expenses(
-                year=year, month=month,
-                self_working=self_working, spouse_working=spouse_working,
-                infl=infl,
-            )
-
-            # Apply adaptive spending multiplier if provided
+            # Apply adaptive spending multiplier
+            mult = 1.0
             if self.expense_multipliers is not None and m < len(self.expense_multipliers):
                 mult = float(self.expense_multipliers[m])
-                for k in exp:
-                    exp[k] = round(exp[k] * mult, 2)
+            elif self.adaptive_spending and self.return_overrides is not None:
+                if m >= 12:
+                    # Trailing 12 months returns
+                    lookback_returns = self.return_overrides[m - 12:m]
+                    cum_log = np.sum(np.log1p(lookback_returns))
+                    annual_return = np.exp(cum_log) - 1.0
+
+                    if annual_return <= 0:
+                        norm = max(-1.0, annual_return / 0.20)
+                        mult = 1.0 + norm * 0.15   # cuts up to 15%
+                    else:
+                        prior_year = year - 1
+                        trial_prior_nw = trial_eoy_net_worths.get(prior_year, start_net_worth)
+
+                        baseline_prior_nw = start_net_worth
+                        if self.det_annual_nw is not None:
+                            baseline_prior_nw = self.det_annual_nw.get(prior_year, start_net_worth)
+
+                        if trial_prior_nw >= baseline_prior_nw:
+                            norm = min(1.0, annual_return / 0.20)
+                            mult = 1.0 + norm * 0.07   # boosts up to 7%
+
+            if mult != 1.0:
+                if fast_path:
+                    expense_total = base_expense_total * mult
+                else:
+                    for k in exp:
+                        exp[k] = round(exp[k] * mult, 2)
+                    expense_total = exp["expense_total"]
+            else:
+                expense_total = base_expense_total
 
             # ── 3. Real estate: appreciate + amortize ────────────────────
-            step_all_month(re_portfolio, current_year=year)
+            if re_portfolio is not None:
+                step_all_month(re_portfolio, current_year=year)
 
             # ── 4. Contributions (working owners only) ────────────────────
+            month_contrib = 0.0
             if self_working or spouse_working:
-                month_contrib = contribute_all(invest_portfolio, is_working)
-            else:
-                month_contrib = 0.0
+                if fast_path:
+                    for state in invest_portfolio:
+                        owner = state.account.owner
+                        if (owner == "self" and self_working) or (owner == "spouse" and spouse_working):
+                            month_contrib += state.contribute(include_match=True)
+                else:
+                    is_working = {"self": self_working, "spouse": spouse_working}
+                    month_contrib = contribute_all(invest_portfolio, is_working)
 
             # ── 5. Grow all accounts ──────────────────────────────────────
+            month_growth = 0.0
             if self.return_overrides is not None:
-                # Monte Carlo path: use the pre-generated return for this month
                 monthly_rate = float(self.return_overrides[m])
-                month_growth = grow_all(invest_portfolio, monthly_rate_override=monthly_rate)
+                if fast_path:
+                    for s in invest_portfolio:
+                        growth = s.balance * monthly_rate
+                        s.balance += growth
+                        s.total_growth += growth
+                        month_growth += growth
+                else:
+                    month_growth = grow_all(invest_portfolio, monthly_rate_override=monthly_rate)
             else:
-                # Deterministic path: each account uses its own configured rate
                 month_growth = grow_all(invest_portfolio)
 
             # ── 6. Tax estimate (monthly, based on prior-year eff rate) ────
-            annual_income_est = (
-                inc["income_salary_self"] + inc["income_salary_spouse"] +
-                inc["income_other"] + inc["income_ss_self"] + inc["income_ss_spouse"]
-            ) * 12
+            if fast_path:
+                annual_income_est = (income_total - precomputed_rental_net[m]) * 12
+            else:
+                annual_income_est = (
+                    inc["income_salary_self"] + inc["income_salary_spouse"] +
+                    inc["income_other"] + inc["income_ss_self"] + inc["income_ss_spouse"]
+                ) * 12
+
             monthly_tax_est = self._monthly_tax_estimate(
                 yr_state=yr_state,
                 annual_income_est=annual_income_est,
@@ -285,45 +482,45 @@ class ProjectionEngine:
             )
 
             # ── 7. Withdrawals (retirement months) ───────────────────────
-            monthly_need = max(0.0, exp["expense_total"] - inc["income_total"] + monthly_tax_est)
-            wd_plan: Optional[AnnualWithdrawalPlan] = None
-            wd_row: dict = {
-                "withdrawal_ordinary": 0.0,
-                "withdrawal_gains":    0.0,
-                "withdrawal_rmd":      0.0,
-                "withdrawal_total":    0.0,
-                "withdrawal_shortfall":0.0,
-                "rmd_excess":          0.0,
-            }
+            monthly_need = max(0.0, expense_total - income_total + monthly_tax_est)
+            
+            if not fast_path:
+                wd_row: dict = {
+                    "withdrawal_ordinary": 0.0,
+                    "withdrawal_gains":    0.0,
+                    "withdrawal_rmd":      0.0,
+                    "withdrawal_total":    0.0,
+                    "withdrawal_shortfall":0.0,
+                    "rmd_excess":          0.0,
+                }
+            else:
+                wd_gains = wd_rmd = wd_total = 0.0
 
             if both_retired and monthly_need > 0:
-                # Annual RMD-aware withdrawal (called each month with monthly need;
-                # RMD forcing only fires on specific months — see withdrawal.py)
-                # For simplicity in the monthly loop: do sequential withdrawal each month;
-                # run the full annual RMD check once in December.
                 if month == 12:
-                    # December: do full annual RMD check for any remaining RMD balance
-                    annual_need = monthly_need * 12  # re-estimate for Dec settlement
+                    annual_need = monthly_need * 12
                     owner_ages  = {"self": self_age_int, "spouse": spouse_age_int}
                     wd_plan = execute_annual_withdrawals(
                         invest_portfolio, annual_need, owner_ages,
-                        prior_balances=prior_balances,  # IRS prior year-end balances
+                        prior_balances=prior_balances,
                     )
-                    # Spread December result across 1 month view
-                    wd_row = {
-                        "withdrawal_ordinary": round(wd_plan.total_ordinary_income, 2),
-                        "withdrawal_gains":    round(wd_plan.total_capital_gains,   2),
-                        "withdrawal_rmd":      round(wd_plan.total_rmd,             2),
-                        "withdrawal_total":    round(wd_plan.total_withdrawn,        2),
-                        "withdrawal_shortfall":round(wd_plan.shortfall,             2),
-                        "rmd_excess":          round(wd_plan.rmd_excess,            2),
-                    }
+                    if fast_path:
+                        wd_gains = wd_plan.total_capital_gains
+                        wd_rmd = wd_plan.total_rmd
+                        wd_total = wd_plan.total_withdrawn
+                    else:
+                        wd_row = {
+                            "withdrawal_ordinary": round(wd_plan.total_ordinary_income, 2),
+                            "withdrawal_gains":    round(wd_plan.total_capital_gains,   2),
+                            "withdrawal_rmd":      round(wd_plan.total_rmd,             2),
+                            "withdrawal_total":    round(wd_plan.total_withdrawn,        2),
+                            "withdrawal_shortfall":round(wd_plan.shortfall,             2),
+                            "rmd_excess":          round(wd_plan.rmd_excess,            2),
+                        }
                 else:
-                    # Non-December: simple sequential withdrawal for monthly need
-                    from engine.withdrawal import _accounts_in_order
                     remaining = monthly_need
                     w_ordinary = w_gains = w_total = 0.0
-                    for state in _accounts_in_order(invest_portfolio):
+                    for state in ordered_portfolio:
                         if remaining <= 0:
                             break
                         wr = state.withdraw(remaining)
@@ -331,41 +528,69 @@ class ProjectionEngine:
                         w_gains    += wr.capital_gain
                         w_total    += wr.withdrawn
                         remaining  -= wr.withdrawn
-                    wd_row = {
-                        "withdrawal_ordinary": round(w_ordinary, 2),
-                        "withdrawal_gains":    round(w_gains,    2),
-                        "withdrawal_rmd":      0.0,
-                        "withdrawal_total":    round(w_total,    2),
-                        "withdrawal_shortfall":round(max(0, remaining), 2),
-                        "rmd_excess":          0.0,
-                    }
+                    
+                    if fast_path:
+                        wd_gains = w_gains
+                        wd_rmd = 0.0
+                        wd_total = w_total
+                    else:
+                        wd_row = {
+                            "withdrawal_ordinary": round(w_ordinary, 2),
+                            "withdrawal_gains":    round(w_gains,    2),
+                            "withdrawal_rmd":      0.0,
+                            "withdrawal_total":    round(w_total,    2),
+                            "withdrawal_shortfall":round(max(0, remaining), 2),
+                            "rmd_excess":          0.0,
+                        }
 
             # ── 8. Accumulate year-to-date totals ────────────────────────
-            yr_state.income_ordinary += (
-                inc["income_salary_self"] + inc["income_salary_spouse"] + inc["income_other"]
-            )
-            yr_state.income_ss       += inc["income_ss_self"] + inc["income_ss_spouse"]
-            yr_state.income_rental   += inc["income_rental_net"]
-            yr_state.cap_gains       += wd_row["withdrawal_gains"]
-            yr_state.rmd_total       += wd_row["withdrawal_rmd"]
-            yr_state.withdrawals_total += wd_row["withdrawal_total"]
-            yr_state.expense_total   += exp["expense_total"]
-            yr_state.tax_paid        += monthly_tax_est
+            if fast_path:
+                ss_sum = precomputed_ss_self[m] + precomputed_ss_spouse[m]
+                yr_state.income_ordinary += (income_total - precomputed_rental_net[m] - ss_sum)
+                yr_state.income_ss       += ss_sum
+                yr_state.income_rental   += precomputed_rental_net[m]
+                yr_state.cap_gains       += wd_gains
+                yr_state.rmd_total       += wd_rmd
+                yr_state.withdrawals_total += wd_total
+                yr_state.expense_total   += expense_total
+                yr_state.tax_paid        += monthly_tax_est
+            else:
+                yr_state.income_ordinary += (
+                    inc["income_salary_self"] + inc["income_salary_spouse"] + inc["income_other"]
+                )
+                yr_state.income_ss       += inc["income_ss_self"] + inc["income_ss_spouse"]
+                yr_state.income_rental   += inc["income_rental_net"]
+                yr_state.cap_gains       += wd_row["withdrawal_gains"]
+                yr_state.rmd_total       += wd_row["withdrawal_rmd"]
+                yr_state.withdrawals_total += wd_row["withdrawal_total"]
+                yr_state.expense_total   += exp["expense_total"]
+                yr_state.tax_paid        += monthly_tax_est
 
             # ── 9. Compute net worth ──────────────────────────────────────
-            invest_total = sum(s.balance for s in invest_portfolio)
-            re_equity    = sum(s.net_equity for s in re_portfolio)
+            invest_total = 0.0
+            for s in invest_portfolio:
+                invest_total += s.balance
+                
+            re_equity    = precomputed_re_equity[m]
             net_worth    = invest_total + re_equity
 
-            # ── 10. Build row ─────────────────────────────────────────────
+            if month == 12:
+                trial_eoy_net_worths[year] = net_worth
+                if fast_path:
+                    eoy_net_worths.append(net_worth)
+                    if net_worth <= 0 and ruin_year is None:
+                        ruin_year = year
+            
+            if fast_path:
+                continue
             row: dict = {
                 # Time
                 "year":            year,
                 "month":           month,
                 "years_elapsed":   round(m / 12, 3),
                 # Ages
-                "self_age":        round(self_age_dec,   2),
-                "spouse_age":      round(spouse_age_dec, 2),
+                "self_age":        round(self_age_int + (m % 12) / 12,   2),
+                "spouse_age":      round(spouse_age_int + (m % 12) / 12, 2),
                 "self_age_int":    self_age_int,
                 "spouse_age_int":  spouse_age_int,
                 "self_working":    int(self_working),
@@ -397,6 +622,9 @@ class ProjectionEngine:
                 ),
             }
             rows.append(row)
+
+        if fast_path:
+            return None, (eoy_net_worths, ruin_year)
 
         monthly_df = pd.DataFrame(rows)
         annual_df  = self._build_annual_summary(monthly_df)

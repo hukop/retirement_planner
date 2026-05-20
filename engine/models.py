@@ -59,6 +59,42 @@ class Person:
     ss_monthly_benefit: float = 0.0  # estimated benefit at Full Retirement Age
     ss_claiming_age: int = 67        # 62–70
 
+    def __init__(
+        self,
+        name: str = "Self",
+        birth_year: Optional[int] = None,
+        birth_month: int = 1,
+        retirement_year: Optional[int] = None,
+        life_expectancy: int = 90,
+        ss_monthly_benefit: float = 0.0,
+        ss_claiming_age: int = 67,
+        current_age: Optional[int] = None,
+        retirement_age: Optional[int] = None,
+    ):
+        self.name = name
+        self.birth_month = birth_month
+        self.life_expectancy = life_expectancy
+        self.ss_monthly_benefit = ss_monthly_benefit
+        self.ss_claiming_age = ss_claiming_age
+
+        from datetime import date
+        current_year = date.today().year
+
+        if birth_year is not None:
+            self.birth_year = birth_year
+        elif current_age is not None:
+            self.birth_year = current_year - current_age
+        else:
+            self.birth_year = 1975
+
+        if retirement_year is not None:
+            self.retirement_year = retirement_year
+        elif retirement_age is not None:
+            # Reconstruct retirement_year based on birth_year + retirement_age
+            self.retirement_year = self.birth_year + retirement_age
+        else:
+            self.retirement_year = 2040
+
     @property
     def retirement_age(self) -> int:
         """Calculate age at retirement."""
