@@ -1,5 +1,5 @@
 """
-Data models for the retirement planner.
+Data models for Finance Planner.
 
 All inputs and configuration are represented as dataclasses here.
 The engine layer operates on these models; the UI layer reads/writes them.

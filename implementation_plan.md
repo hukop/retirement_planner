@@ -1,4 +1,4 @@
-# Retirement Planner — Implementation Plan (MVP)
+# Finance Planner — Implementation Plan (MVP)
 
 > Python + Dash · California · Married · 5–10 years to retirement · Real estate · No kids/pension/debt
 

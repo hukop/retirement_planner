@@ -68,7 +68,7 @@ def _sidebar() -> html.Div:
                             html.Div("🏦", className="logo-icon"),
                             html.Div(
                                 [
-                                    html.Div("RetirePlan", style={"lineHeight": "1.1"}),
+                                    html.Div("FinancePlan", style={"lineHeight": "1.1"}),
                                     html.Div(
                                         "Personal — Local — Private",
                                         style={

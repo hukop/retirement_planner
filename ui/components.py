@@ -1,5 +1,5 @@
 """
-Reusable Dash UI components for the Retirement Planner.
+Reusable Dash UI components for Finance Planner.
 
 All components return Dash/DBC elements and use CSS classes from assets/styles.css.
 Components are pure functions — no callbacks here.

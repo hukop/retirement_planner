@@ -1,5 +1,5 @@
 """
-Retirement Planner — Personal retirement planning web app.
+Finance Planner — Personal retirement planning web app.
 Built with Python + Dash. All data stays local.
 """
 
@@ -32,7 +32,7 @@ app = Dash(
     suppress_callback_exceptions=True,  # Required: pattern-matching callbacks (ALL/MATCH)
                                         # reference component IDs that don't exist at startup
                                         # (dynamic lists render IDs only after data loads).
-    title="Retirement Planner",
+    title="Finance Planner",
     update_title="Calculating...",
     background_callback_manager=background_callback_manager,
 )

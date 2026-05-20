@@ -1,4 +1,4 @@
-# RetirePlan (Retirement Dashboard MVP)
+# FinancePlan
 
 A highly personalized, local-first Python/Dash web application built to simulate your specific financial retirement roadmap.
 
