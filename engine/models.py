@@ -41,6 +41,10 @@ class MonteCarloConfig:
     # Optional fixed seed for reproducibility (None = random each run)
     random_seed: Optional[int] = None
 
+    # UI/run options
+    adaptive_spending: bool = False
+    live_updates: bool = True
+
 
 # ---------------------------------------------------------------------------
 # Person

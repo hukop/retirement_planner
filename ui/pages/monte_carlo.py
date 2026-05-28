@@ -182,7 +182,7 @@ def _fan_chart(result: MonteCarloResult, retire_yr: int) -> go.Figure:
         "shapes": shapes,
         "annotations": annotations,
         "legend": {**PLOTLY_DARK_TEMPLATE["layout"]["legend"],
-                   "orientation": "h", "y": -0.18, "x": 0},
+                   "orientation": "h", "y": -0.08, "x": 0},
         "height": 600,
     })
     fig.update_layout(**layout)
@@ -196,9 +196,11 @@ def _fan_chart(result: MonteCarloResult, retire_yr: int) -> go.Figure:
 def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
     fig = go.Figure()
     nws = result.terminal_net_worths
+    total = len(nws)
 
     # 1. Separate Ruin ($0) and Surviving (> $0) trials
     ruin_count = sum(1 for v in nws if v <= 0)
+    ruin_pct = ruin_count / total * 100
     surviving_nws = [v for v in nws if v > 0]
 
     max_nw = max(nws) if nws else 1_000_000.0
@@ -209,12 +211,12 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
     if ruin_count > 0:
         fig.add_trace(go.Bar(
             x=[-bin_w / 2],
-            y=[ruin_count],
+            y=[ruin_pct],
             width=[bin_w],
             marker=dict(color=_C["worst"], line=dict(color="rgba(0,0,0,0)", width=0)),
             opacity=0.85,
             name="Ruin ($0)",
-            hovertemplate="Ruin ($0): %{y} trials<extra></extra>",
+            hovertemplate=f"Ruin ($0): {ruin_pct:.1f}% ({ruin_count:,} trials)<extra></extra>",
         ))
 
     if surviving_nws:
@@ -236,6 +238,7 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
         counts, _ = np.histogram(sqrt_surviving, bins=bin_edges)
         # Fold data above the last edge into the merged bin
         counts[-1] += sum(1 for v in sqrt_surviving if v > bin_edges[-1])
+        counts_pct = counts / total * 100
 
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
         bin_widths = bin_edges[1:] - bin_edges[:-1]
@@ -245,13 +248,13 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
             left_val = bin_edges[i] ** 2
             right_val = bin_edges[i+1] ** 2
             if i == len(counts) - 1:
-                hover_texts.append(f"{_fmt_currency(p90_val)}+: {counts[i]} trials (top 10%)")
+                hover_texts.append(f"{_fmt_currency(p90_val)}+: {counts_pct[i]:.1f}% ({counts[i]:,} trials, top 10%)")
             else:
-                hover_texts.append(f"{_fmt_currency(left_val)} - {_fmt_currency(right_val)}: {counts[i]} trials")
+                hover_texts.append(f"{_fmt_currency(left_val)} - {_fmt_currency(right_val)}: {counts_pct[i]:.1f}% ({counts[i]:,} trials)")
 
         fig.add_trace(go.Bar(
             x=bin_centers,
-            y=counts,
+            y=counts_pct,
             width=bin_widths,
             marker=dict(color=_C["p50"], line=dict(color="rgba(0,0,0,0)", width=0)),
             opacity=0.75,
@@ -306,8 +309,14 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
         "showlegend": True,
         "barmode": "overlay",
         "height": 320,
+        "legend": {
+            **PLOTLY_DARK_TEMPLATE["layout"]["legend"],
+            "orientation": "v",
+            "x": 1, "y": 1,
+            "xanchor": "right", "yanchor": "top",
+        },
         "yaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["yaxis"],
-                  "tickprefix": "", "tickformat": ",d", "title": "# Trials"},
+                  "tickprefix": "", "tickformat": ".1f", "ticksuffix": "%", "title": "% of Trials"},
         "xaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["xaxis"],
                   "title": "Terminal Net Worth (Square Root Scale)",
                   "tickvals": tickvals,
@@ -374,7 +383,10 @@ def _ruin_year_chart(result: MonteCarloResult) -> go.Figure:
 # ---------------------------------------------------------------------------
 # Configuration panel (shown before first run and always editable)
 # ---------------------------------------------------------------------------
-def _config_panel(current_trials: int = 1000) -> html.Div:
+def _config_panel(config: MonteCarloConfig) -> html.Div:
+    live_update_value = ["on"] if getattr(config, "live_updates", True) else []
+    adaptive_value = ["on"] if getattr(config, "adaptive_spending", False) else []
+
     return html.Div([
         dbc.Row([
             dbc.Col(
@@ -399,7 +411,7 @@ def _config_panel(current_trials: int = 1000) -> html.Div:
                             {"label": "2,500 trials", "value": "2500"},
                             {"label": "5,000 trials", "value": "5000"},
                         ],
-                        value=str(current_trials),
+                        value=str(config.num_trials),
                         size="sm",
                         style={"width": "120px", "display": "inline-block", "backgroundColor": "var(--bg-input)", "borderColor": "var(--border-input)", "color": "var(--text-primary)", "fontSize": "12px"}
                     ),
@@ -408,22 +420,13 @@ def _config_panel(current_trials: int = 1000) -> html.Div:
                 width="auto",
             ),
             dbc.Col(
-                [
-                    html.Span("live update every", style={"fontSize": "13px", "color": "var(--text-muted)", "margin": "0 10px 0 20px"}),
-                    dbc.Select(
-                        id="mc-input-live-interval",
-                        options=[
-                            {"label": "Off", "value": "0"},
-                            {"label": "10 trials", "value": "10"},
-                            {"label": "25 trials", "value": "25"},
-                            {"label": "50 trials", "value": "50"},
-                            {"label": "100 trials", "value": "100"},
-                        ],
-                        value="25",
-                        size="sm",
-                        style={"width": "110px", "display": "inline-block", "backgroundColor": "var(--bg-input)", "borderColor": "var(--border-input)", "color": "var(--text-primary)", "fontSize": "12px"}
-                    ),
-                ],
+                dcc.Checklist(
+                    id="mc-input-live-updates",
+                    options=[{"label": " Live Updates", "value": "on"}],
+                    value=live_update_value,
+                    inputStyle={"marginRight": "8px"},
+                    style={"fontSize": "13px", "color": "var(--text-secondary)", "marginLeft": "20px"},
+                ),
                 className="d-flex align-items-center",
                 width="auto",
             ),
@@ -431,7 +434,7 @@ def _config_panel(current_trials: int = 1000) -> html.Div:
                 dcc.Checklist(
                     id="mc-input-adaptive-spending",
                     options=[{"label": " Adaptive Spending", "value": "on"}],
-                    value=[],
+                    value=adaptive_value,
                     inputStyle={"marginRight": "8px"},
                     style={"fontSize": "13px", "color": "var(--text-secondary)", "marginLeft": "20px"},
                 ),
@@ -561,7 +564,7 @@ def layout(
     retire_yr = profile.retirement_year_self
 
     # ── Control panel ─────────────────────────────────────────────────────
-    control_panel = html.Div(_config_panel(config.num_trials), style={"marginBottom": "24px"})
+    control_panel = html.Div(_config_panel(config), style={"marginBottom": "24px"})
 
     # ── Results section ───────────────────────────────────────────────────
     if mc_data:

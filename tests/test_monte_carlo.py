@@ -22,7 +22,10 @@ from engine.monte_carlo import (
     generate_return_sequences,
     run_monte_carlo,
     _annual_to_monthly_lognormal_params,
+    _build_all_blended_sequences,
+    _build_fast_context,
     _find_ruin_year,
+    _run_fast_trial,
     monte_carlo_result_to_dict,
 )
 from engine.projections import run_projection, ProjectionEngine
@@ -229,6 +232,60 @@ class TestRunMonteCarlo:
         import json
         json_str = json.dumps(d)
         assert len(json_str) > 100
+
+    @pytest.mark.parametrize("adaptive_spending", [False, True])
+    def test_primitive_fast_kernel_matches_projection_fast_path(
+        self,
+        sample_profile_small_mc,
+        adaptive_spending,
+    ):
+        """The Monte Carlo kernel should preserve ProjectionEngine fast-path math."""
+        profile = sample_profile_small_mc
+        det_engine = ProjectionEngine(profile)
+        _, det_annual = det_engine.run()
+
+        start_year = det_engine.start_year
+        num_months = (profile.plan_end_year - start_year + 1) * 12
+        years = sorted(det_annual["year"].unique().tolist())
+        det_annual_nw = dict(zip(det_annual["year"], det_annual["net_worth_eoy"]))
+
+        equity_seqs, bond_seqs = generate_return_sequences(profile.monte_carlo, num_months)
+        all_blended = _build_all_blended_sequences(equity_seqs, bond_seqs, profile)
+        returns = all_blended[0]
+
+        fast_context = _build_fast_context(
+            profile=profile,
+            det_engine=det_engine,
+            det_annual_nw=det_annual_nw,
+            years=years,
+            num_months=num_months,
+        )
+        kernel_eoy, kernel_ruin = _run_fast_trial(
+            fast_context,
+            returns,
+            adaptive_spending=adaptive_spending,
+        )
+
+        engine = ProjectionEngine(
+            profile,
+            return_overrides=returns,
+            det_annual_nw=det_annual_nw,
+            adaptive_spending=adaptive_spending,
+            precomputed_salary_self=det_engine.precomputed_salary_self,
+            precomputed_salary_spouse=det_engine.precomputed_salary_spouse,
+            precomputed_ss_self=det_engine.precomputed_ss_self,
+            precomputed_ss_spouse=det_engine.precomputed_ss_spouse,
+            precomputed_expenses=det_engine.precomputed_expenses,
+            precomputed_expense_totals=det_engine.precomputed_expense_totals,
+            precomputed_re_equity=det_engine.precomputed_re_equity,
+            precomputed_rental_net=det_engine.precomputed_rental_net,
+            precomputed_income_totals=det_engine.precomputed_income_totals,
+        )
+        _, fast_res = engine.run(fast_path=True)
+        engine_eoy, engine_ruin = fast_res
+
+        np.testing.assert_allclose(kernel_eoy, np.array(engine_eoy), rtol=1e-12, atol=1e-6)
+        assert kernel_ruin == engine_ruin
 
 
 # ---------------------------------------------------------------------------

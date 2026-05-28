@@ -17,15 +17,12 @@ trials, which updates:
 
 from __future__ import annotations
 
-import copy
-import json
-
 import dash
-from dash import Input, Output, State, html, dcc
+from dash import Input, Output, State
 import dash_bootstrap_components as dbc
 import diskcache
 
-from engine.models import PlanProfile, MonteCarloConfig
+from engine.models import PlanProfile
 from engine.monte_carlo import run_monte_carlo, monte_carlo_result_to_dict, MonteCarloResult
 
 # Shared cache for intermediate results (same cache dir as background manager)
@@ -46,7 +43,7 @@ _INTERMEDIATE_READY_KEY = "mc_intermediate_ready"
         n_clicks=Input("btn-run-monte-carlo", "n_clicks"),
         profile_data=State("profile-store",  "data"),
         num_trials_input=State("mc-input-num-trials", "value"),
-        update_interval_input=State("mc-input-live-interval", "value"),
+        live_updates_input=State("mc-input-live-updates", "value"),
         adaptive_spending_input=State("mc-input-adaptive-spending", "value"),
     ),
     progress=[
@@ -75,7 +72,7 @@ def run_simulation(
     n_clicks,
     profile_data,
     num_trials_input,
-    update_interval_input,
+    live_updates_input,
     adaptive_spending_input,
 ):
     if not n_clicks:
@@ -95,8 +92,8 @@ def run_simulation(
         if num_trials_input:
             profile.monte_carlo.num_trials = int(num_trials_input)
 
-        # Parse the live update interval (0 = no live updates)
-        live_interval = int(update_interval_input or 0)
+        live_updates = bool(live_updates_input and "on" in live_updates_input)
+        live_interval = 200 if live_updates else 0
 
         mc_config = profile.monte_carlo
         n_total = mc_config.num_trials
@@ -119,6 +116,8 @@ def run_simulation(
 
         # dcc.Checklist returns a list: ["on"] if checked, [] if not
         adaptive = bool(adaptive_spending_input and "on" in adaptive_spending_input)
+        profile.monte_carlo.adaptive_spending = adaptive
+        profile.monte_carlo.live_updates = live_updates
 
         result = run_monte_carlo(
             profile,
@@ -159,6 +158,34 @@ def run_simulation(
 
 
 def register_monte_carlo_callbacks(app: dash.Dash) -> None:
+    # Keep the MC tab's controls in the same profile store used by the rest of
+    # the app, so navigating away and back preserves the choices.
+    @app.callback(
+        Output("profile-store", "data", allow_duplicate=True),
+        Input("mc-input-num-trials", "value"),
+        Input("mc-input-adaptive-spending", "value"),
+        Input("mc-input-live-updates", "value"),
+        State("profile-store", "data"),
+        prevent_initial_call=True,
+    )
+    def sync_monte_carlo_controls(
+        num_trials_value,
+        adaptive_spending_value,
+        live_updates_value,
+        profile_data,
+    ):
+        if num_trials_value is None:
+            raise dash.exceptions.PreventUpdate
+
+        profile_data = profile_data or {}
+        existing_mc = profile_data.get("monte_carlo", {})
+        profile_data["monte_carlo"] = {
+            **existing_mc,
+            "num_trials": int(num_trials_value),
+            "adaptive_spending": bool(adaptive_spending_value and "on" in adaptive_spending_value),
+            "live_updates": bool(live_updates_value and "on" in live_updates_value),
+        }
+        return profile_data
 
 
     # ── 2. Render live updates ───────────────────────────────────────────

@@ -43,16 +43,15 @@ sequence drawn from the bond/cash parameters in MonteCarloConfig.
 
 Performance
 -----------
-Each trial runs a fresh ProjectionEngine instance (~480 months for a 40-yr
-plan).  At 1,000 trials this typically takes 5–12 seconds on modern hardware.
-No multiprocessing is used in the initial implementation; vectorised fast-paths
-can be added later if needed.
+The deterministic baseline and selected detailed scenarios still use
+ProjectionEngine, but the bulk trials use a single-threaded primitive kernel.
+It keeps the same month-by-month math while avoiding per-trial DataFrame
+construction and most AccountState/WithdrawalResult object allocation.
 """
 
 from __future__ import annotations
 
-import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
@@ -60,6 +59,8 @@ import pandas as pd
 
 from engine.models import PlanProfile, MonteCarloConfig, ACCOUNT_TAX_TREATMENT
 from engine.projections import ProjectionEngine
+from engine.taxes import calculate_taxes
+from engine.withdrawal import RMD_ACCOUNT_TYPES, WITHDRAWAL_TIERS, distribution_period
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +71,16 @@ from engine.projections import ProjectionEngine
 _EQUITY_ACCOUNT_TYPES = {"401k", "trad_ira", "roth_ira", "roth_401k", "brokerage"}
 # Low-volatility accounts get a separate bond/cash return sequence
 _BOND_ACCOUNT_TYPES   = {"savings", "hsa"}
+
+_TAXABLE = 0
+_TAX_DEFERRED = 1
+_TAX_FREE = 2
+
+_TAX_TREATMENT_CODES = {
+    "taxable": _TAXABLE,
+    "tax_deferred": _TAX_DEFERRED,
+    "tax_free": _TAX_FREE,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -324,13 +335,489 @@ def _find_ruin_year(annual_df: pd.DataFrame) -> Optional[int]:
 
 
 # ---------------------------------------------------------------------------
+# Primitive fast kernel for bulk Monte Carlo trials
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class _FastMonteCarloContext:
+    """Immutable inputs reused by every primitive Monte Carlo trial."""
+
+    num_months: int
+    years: list[int]
+    filing_status: str
+
+    income_totals: np.ndarray
+    expense_totals: np.ndarray
+    re_equity: np.ndarray
+    taxable_monthly_income: np.ndarray
+    annual_income_ordinary: np.ndarray
+    annual_ss: np.ndarray
+
+    month_numbers: np.ndarray
+    year_numbers: np.ndarray
+    year_indices: np.ndarray
+    self_ages: np.ndarray
+    spouse_ages: np.ndarray
+    self_working: np.ndarray
+    spouse_working: np.ndarray
+    both_retired: np.ndarray
+
+    initial_balances: np.ndarray
+    initial_cost_basis: np.ndarray
+    monthly_contributions: np.ndarray
+    owner_codes: np.ndarray
+    tax_codes: np.ndarray
+    rmd_eligible: np.ndarray
+    ordered_indices: np.ndarray
+    self_contribution_indices: tuple[int, ...]
+    spouse_contribution_indices: tuple[int, ...]
+    account_names: list[str]
+    first_taxable_idx: int
+
+    start_net_worth: float
+    bootstrap_eff_rate: float
+    det_annual_nw: dict[int, float]
+
+
+def _build_fast_context(
+    profile: PlanProfile,
+    det_engine: ProjectionEngine,
+    det_annual_nw: dict[int, float],
+    years: list[int],
+    num_months: int,
+) -> _FastMonteCarloContext:
+    """Build per-run metadata for the primitive Monte Carlo trial kernel."""
+    accounts = profile.accounts
+    tax_treatments = [
+        ACCOUNT_TAX_TREATMENT.get(account.account_type, "taxable")
+        for account in accounts
+    ]
+
+    initial_balances = np.array(
+        [float(account.balance) for account in accounts],
+        dtype=float,
+    )
+    initial_cost_basis = np.array(
+        [
+            float(account.cost_basis)
+            if account.cost_basis is not None
+            else float(account.balance) * 0.50
+            for account in accounts
+        ],
+        dtype=float,
+    )
+    monthly_contributions = np.array(
+        [
+            (float(account.annual_contribution) + float(account.employer_match)) / 12.0
+            for account in accounts
+        ],
+        dtype=float,
+    )
+    owner_codes = np.array(
+        [
+            0 if account.owner == "self" else 1 if account.owner == "spouse" else -1
+            for account in accounts
+        ],
+        dtype=np.int8,
+    )
+    tax_codes = np.array(
+        [_TAX_TREATMENT_CODES.get(treatment, _TAXABLE) for treatment in tax_treatments],
+        dtype=np.int8,
+    )
+    rmd_eligible = np.array(
+        [account.account_type in RMD_ACCOUNT_TYPES for account in accounts],
+        dtype=bool,
+    )
+    self_contribution_indices = tuple(
+        idx for idx, account in enumerate(accounts) if account.owner == "self"
+    )
+    spouse_contribution_indices = tuple(
+        idx for idx, account in enumerate(accounts) if account.owner == "spouse"
+    )
+
+    tier_order = {tier: idx for idx, tier in enumerate(WITHDRAWAL_TIERS)}
+    ordered_indices = np.array(
+        sorted(
+            range(len(accounts)),
+            key=lambda idx: tier_order.get(tax_treatments[idx], 99),
+        ),
+        dtype=np.intp,
+    )
+    first_taxable_idx = next(
+        (idx for idx, treatment in enumerate(tax_treatments) if treatment == "taxable"),
+        -1,
+    )
+
+    month_offsets = np.arange(num_months, dtype=np.int32)
+    year_indices = month_offsets // 12
+    month_numbers = (month_offsets % 12) + 1
+    year_numbers = det_engine.start_year + year_indices
+    self_ages = profile.self_person.current_age + year_indices
+    spouse_ages = profile.spouse.current_age + year_indices
+    self_working = self_ages < profile.self_person.retirement_age
+    spouse_working = spouse_ages < profile.spouse.retirement_age
+
+    annual_salary = sum(float(src.annual_amount) for src in profile.incomes)
+    bootstrap_eff_rate = calculate_taxes(
+        ordinary_income=annual_salary,
+        filing_status=profile.filing_status,
+    ).effective_rate
+
+    income_totals = np.asarray(det_engine.precomputed_income_totals, dtype=float)
+    rental_net = np.asarray(det_engine.precomputed_rental_net, dtype=float)
+    ss_totals = (
+        np.asarray(det_engine.precomputed_ss_self, dtype=float)
+        + np.asarray(det_engine.precomputed_ss_spouse, dtype=float)
+    )
+    taxable_monthly_income = income_totals - rental_net
+    ordinary_income_by_month = taxable_monthly_income - ss_totals
+    annual_income_ordinary = ordinary_income_by_month.reshape(-1, 12).sum(axis=1)
+    annual_ss = ss_totals.reshape(-1, 12).sum(axis=1)
+    start_net_worth = float(
+        initial_balances.sum()
+        + sum(float(prop.net_equity) for prop in profile.properties)
+    )
+
+    return _FastMonteCarloContext(
+        num_months=num_months,
+        years=years,
+        filing_status=profile.filing_status,
+        income_totals=income_totals,
+        expense_totals=np.asarray(det_engine.precomputed_expense_totals, dtype=float),
+        re_equity=np.asarray(det_engine.precomputed_re_equity, dtype=float),
+        taxable_monthly_income=taxable_monthly_income,
+        annual_income_ordinary=annual_income_ordinary,
+        annual_ss=annual_ss,
+        month_numbers=month_numbers,
+        year_numbers=year_numbers,
+        year_indices=year_indices,
+        self_ages=self_ages,
+        spouse_ages=spouse_ages,
+        self_working=self_working,
+        spouse_working=spouse_working,
+        both_retired=np.logical_not(np.logical_or(self_working, spouse_working)),
+        initial_balances=initial_balances,
+        initial_cost_basis=initial_cost_basis,
+        monthly_contributions=monthly_contributions,
+        owner_codes=owner_codes,
+        tax_codes=tax_codes,
+        rmd_eligible=rmd_eligible,
+        ordered_indices=ordered_indices,
+        self_contribution_indices=self_contribution_indices,
+        spouse_contribution_indices=spouse_contribution_indices,
+        account_names=[account.name for account in accounts],
+        first_taxable_idx=first_taxable_idx,
+        start_net_worth=start_net_worth,
+        bootstrap_eff_rate=float(bootstrap_eff_rate),
+        det_annual_nw=det_annual_nw,
+    )
+
+
+def _withdraw_account_fast(
+    balances: np.ndarray,
+    cost_basis: np.ndarray,
+    idx: int,
+    amount: float,
+    tax_code: int,
+) -> tuple[float, float]:
+    """Withdraw from one primitive account and return (withdrawn, capital_gain)."""
+    if amount <= 0.0:
+        return 0.0, 0.0
+
+    balance = float(balances[idx])
+    if balance <= 0.0:
+        return 0.0, 0.0
+
+    actual = amount if amount < balance else balance
+    cap_gain = 0.0
+
+    if tax_code == _TAXABLE:
+        basis = float(cost_basis[idx])
+        if basis < balance:
+            gain_frac = (balance - basis) / balance
+            if gain_frac > 1.0:
+                gain_frac = 1.0
+            cap_gain = actual * gain_frac
+            basis_used = actual - cap_gain
+        else:
+            basis_used = actual
+        new_basis = basis - basis_used
+        cost_basis[idx] = new_basis if new_basis > 0.0 else 0.0
+
+    balances[idx] = balance - actual
+    return actual, cap_gain
+
+
+def _withdraw_in_order_fast(
+    balances: np.ndarray,
+    cost_basis: np.ndarray,
+    ordered_indices: np.ndarray,
+    tax_codes: np.ndarray,
+    need: float,
+) -> tuple[float, float]:
+    """Satisfy a withdrawal need in tier order. Returns (withdrawn, gains)."""
+    remaining = need if need > 0.0 else 0.0
+    total_withdrawn = 0.0
+    total_gains = 0.0
+
+    for raw_idx in ordered_indices:
+        if remaining <= 0.0:
+            break
+        idx = int(raw_idx)
+        withdrawn, cap_gain = _withdraw_account_fast(
+            balances,
+            cost_basis,
+            idx,
+            remaining,
+            int(tax_codes[idx]),
+        )
+        if withdrawn <= 0.0:
+            continue
+        total_withdrawn += withdrawn
+        total_gains += cap_gain
+        remaining -= withdrawn
+
+    return total_withdrawn, total_gains
+
+
+def _execute_annual_withdrawals_fast(
+    context: _FastMonteCarloContext,
+    balances: np.ndarray,
+    cost_basis: np.ndarray,
+    prior_balance_by_name: dict[str, float],
+    net_need: float,
+    self_age: int,
+    spouse_age: int,
+) -> tuple[float, float, float]:
+    """
+    Primitive equivalent of execute_annual_withdrawals for Monte Carlo trials.
+
+    Returns (total_withdrawn, total_capital_gains, total_rmd).
+    """
+    net_need = net_need if net_need > 0.0 else 0.0
+    total_withdrawn = 0.0
+    total_gains = 0.0
+    total_rmd = 0.0
+
+    for idx, is_rmd_eligible in enumerate(context.rmd_eligible):
+        if not bool(is_rmd_eligible):
+            continue
+
+        owner_code = int(context.owner_codes[idx])
+        age = self_age if owner_code == 0 else spouse_age if owner_code == 1 else 0
+        period = distribution_period(age)
+        if period is None:
+            continue
+
+        balance_for_rmd = prior_balance_by_name.get(
+            context.account_names[idx],
+            float(balances[idx]),
+        )
+        if balance_for_rmd <= 0.0:
+            continue
+
+        rmd_amount = balance_for_rmd / period
+        withdrawn, cap_gain = _withdraw_account_fast(
+            balances,
+            cost_basis,
+            idx,
+            rmd_amount,
+            int(context.tax_codes[idx]),
+        )
+        total_rmd += withdrawn
+        total_withdrawn += withdrawn
+        total_gains += cap_gain
+
+    remaining_need = net_need - total_rmd
+    if remaining_need < 0.0:
+        remaining_need = 0.0
+
+    if total_rmd > net_need and context.first_taxable_idx >= 0:
+        rmd_excess = total_rmd - net_need
+        deposit_idx = context.first_taxable_idx
+        balances[deposit_idx] += rmd_excess
+        cost_basis[deposit_idx] += rmd_excess
+
+    if remaining_need > 0.0:
+        withdrawn, cap_gain = _withdraw_in_order_fast(
+            balances,
+            cost_basis,
+            context.ordered_indices,
+            context.tax_codes,
+            remaining_need,
+        )
+        total_withdrawn += withdrawn
+        total_gains += cap_gain
+
+    return total_withdrawn, total_gains, total_rmd
+
+
+def _compute_trailing_12m_returns(monthly_returns: np.ndarray) -> np.ndarray:
+    """Return trailing 12-month returns aligned to ProjectionEngine logic."""
+    num_months = len(monthly_returns)
+    trailing = np.zeros(num_months, dtype=float)
+    if num_months <= 12:
+        return trailing
+
+    cumulative = np.empty(num_months + 1, dtype=float)
+    cumulative[0] = 0.0
+    np.cumsum(np.log1p(monthly_returns[:num_months]), out=cumulative[1:])
+    window_logs = cumulative[12:num_months] - cumulative[: num_months - 12]
+    trailing[12:] = np.exp(window_logs) - 1.0
+    return trailing
+
+
+def _run_fast_trial(
+    context: _FastMonteCarloContext,
+    monthly_returns: np.ndarray,
+    adaptive_spending: bool = False,
+) -> tuple[np.ndarray, Optional[int]]:
+    """Run one Monte Carlo trial using primitive account arrays."""
+    balances = context.initial_balances.copy()
+    cost_basis = context.initial_cost_basis.copy()
+    num_years = len(context.years)
+    eoy_net_worths = np.empty(num_years, dtype=float)
+    ruin_year: Optional[int] = None
+
+    prior_eff_rate = context.bootstrap_eff_rate
+    eff_rate_eoy = context.bootstrap_eff_rate
+    year_cap_gains = 0.0
+    year_rmd = 0.0
+
+    prior_balance_by_name = {
+        name: float(balances[idx])
+        for idx, name in enumerate(context.account_names)
+    }
+    trial_eoy_net_worths: dict[int, float] = {}
+    trailing_returns = (
+        _compute_trailing_12m_returns(monthly_returns)
+        if adaptive_spending
+        else None
+    )
+
+    for m in range(context.num_months):
+        month = int(context.month_numbers[m])
+
+        if month == 1:
+            if m > 0:
+                prev_year_idx = int(context.year_indices[m]) - 1
+                tax_result = calculate_taxes(
+                    ordinary_income=float(context.annual_income_ordinary[prev_year_idx]) + year_rmd,
+                    long_term_gains=year_cap_gains,
+                    ss_income=float(context.annual_ss[prev_year_idx]),
+                    filing_status=context.filing_status,
+                )
+                eff_rate_eoy = tax_result.effective_rate
+
+            prior_eff_rate = eff_rate_eoy
+            year_cap_gains = 0.0
+            year_rmd = 0.0
+            prior_balance_by_name = {
+                name: float(balances[idx])
+                for idx, name in enumerate(context.account_names)
+            }
+
+        income_total = float(context.income_totals[m])
+        base_expense_total = float(context.expense_totals[m])
+
+        mult = 1.0
+        if adaptive_spending and trailing_returns is not None and m >= 12:
+            annual_return = float(trailing_returns[m])
+            if annual_return <= 0.0:
+                norm = annual_return / 0.20
+                if norm < -1.0:
+                    norm = -1.0
+                mult = 1.0 + norm * 0.15
+            else:
+                year = int(context.year_numbers[m])
+                prior_year = year - 1
+                trial_prior_nw = trial_eoy_net_worths.get(
+                    prior_year,
+                    context.start_net_worth,
+                )
+                baseline_prior_nw = context.det_annual_nw.get(
+                    prior_year,
+                    context.start_net_worth,
+                )
+                if trial_prior_nw >= baseline_prior_nw:
+                    norm = annual_return / 0.20
+                    if norm > 1.0:
+                        norm = 1.0
+                    mult = 1.0 + norm * 0.07
+
+        expense_total = base_expense_total * mult
+
+        if bool(context.self_working[m]):
+            for idx in context.self_contribution_indices:
+                contribution = float(context.monthly_contributions[idx])
+                balances[idx] += contribution
+                cost_basis[idx] += contribution
+
+        if bool(context.spouse_working[m]):
+            for idx in context.spouse_contribution_indices:
+                contribution = float(context.monthly_contributions[idx])
+                balances[idx] += contribution
+                cost_basis[idx] += contribution
+
+        monthly_rate = float(monthly_returns[m])
+        balances += balances * monthly_rate
+
+        taxable_monthly_income = float(context.taxable_monthly_income[m])
+        if prior_eff_rate > 0.0 and taxable_monthly_income > 0.0:
+            monthly_tax_est = taxable_monthly_income * prior_eff_rate
+        else:
+            monthly_tax_est = 0.0
+
+        monthly_need = expense_total - income_total + monthly_tax_est
+        if monthly_need < 0.0:
+            monthly_need = 0.0
+
+        wd_gains = 0.0
+        wd_rmd = 0.0
+
+        if bool(context.both_retired[m]) and monthly_need > 0.0:
+            if month == 12:
+                _, wd_gains, wd_rmd = _execute_annual_withdrawals_fast(
+                    context,
+                    balances,
+                    cost_basis,
+                    prior_balance_by_name,
+                    monthly_need * 12.0,
+                    int(context.self_ages[m]),
+                    int(context.spouse_ages[m]),
+                )
+            else:
+                _, wd_gains = _withdraw_in_order_fast(
+                    balances,
+                    cost_basis,
+                    context.ordered_indices,
+                    context.tax_codes,
+                    monthly_need,
+                )
+
+        year_cap_gains += wd_gains
+        year_rmd += wd_rmd
+
+        if month == 12:
+            year_idx = int(context.year_indices[m])
+            net_worth = float(balances.sum() + context.re_equity[m])
+            eoy_net_worths[year_idx] = net_worth
+            year = int(context.year_numbers[m])
+            trial_eoy_net_worths[year] = net_worth
+            if net_worth <= 0.0 and ruin_year is None:
+                ruin_year = year
+
+    return eoy_net_worths, ruin_year
+
+
+# ---------------------------------------------------------------------------
 # Main public API
 # ---------------------------------------------------------------------------
 
 def _build_partial_result(
-    terminal_net_worths: list[float],
+    terminal_net_worths: np.ndarray | list[float],
     ruin_years: list[int | None],
-    all_annual_nw: list[list[float]],
+    all_annual_nw: np.ndarray | list[list[float]],
     all_annual_dfs: Optional[list[pd.DataFrame]],
     det_annual: pd.DataFrame,
     years: list[int],
@@ -389,7 +876,7 @@ def run_monte_carlo(
     progress_callback: Optional[callable] = None,
     intermediate_callback: Optional[callable] = None,
     intermediate_interval: int = 0,
-    adaptive_spending: bool = False,
+    adaptive_spending: Optional[bool] = None,
 ) -> MonteCarloResult:
     """
     Run the full Monte Carlo simulation for ``profile``.
@@ -407,13 +894,15 @@ def run_monte_carlo(
                         0 means no intermediate updates (wait until end).
     adaptive_spending : bool, if True, scale monthly expenses based on trailing
                         market returns (cut up to 15% in bad years, boost up to
-                        7% in good years).
+                        7% in good years). If None, uses profile.monte_carlo.
 
     Returns
     -------
     MonteCarloResult with all aggregated statistics and select trial DataFrames.
     """
     config = profile.monte_carlo
+    if adaptive_spending is None:
+        adaptive_spending = bool(getattr(config, "adaptive_spending", False))
     n      = config.num_trials
 
     # ── Step 1: Deterministic baseline ───────────────────────────────────
@@ -430,36 +919,31 @@ def run_monte_carlo(
     # ── Step 3: Vectorized blending (all trials at once) ──────────────────
     all_blended = _build_all_blended_sequences(equity_seqs, bond_seqs, profile)
 
-    # ── Step 4: Run N trials (Fast-Path Mode) ─────────────────────────────
-    terminal_net_worths: list[float]          = []
-    ruin_years:          list[Optional[int]]  = []
-    all_annual_nw: list[list[float]] = []
+    # Step 4: Run N trials using the primitive Monte Carlo fast kernel.
+    fast_context = _build_fast_context(
+        profile=profile,
+        det_engine=det_engine,
+        det_annual_nw=det_annual_nw,
+        years=years,
+        num_months=num_months,
+    )
+    terminal_net_worths = np.empty(n, dtype=float)
+    ruin_years: list[Optional[int]] = [None] * n
+    all_annual_nw = np.empty((n, len(years)), dtype=float)
 
     _PROGRESS_INTERVAL = 25   # report every N trials
 
     for trial_idx in range(n):
-        engine = ProjectionEngine(
-            profile,
-            return_overrides=all_blended[trial_idx],
-            det_annual_nw=det_annual_nw,
+        eoy_nws, r_yr = _run_fast_trial(
+            fast_context,
+            all_blended[trial_idx],
             adaptive_spending=adaptive_spending,
-            precomputed_salary_self=det_engine.precomputed_salary_self,
-            precomputed_salary_spouse=det_engine.precomputed_salary_spouse,
-            precomputed_ss_self=det_engine.precomputed_ss_self,
-            precomputed_ss_spouse=det_engine.precomputed_ss_spouse,
-            precomputed_expenses=det_engine.precomputed_expenses,
-            precomputed_expense_totals=det_engine.precomputed_expense_totals,
-            precomputed_re_equity=det_engine.precomputed_re_equity,
-            precomputed_rental_net=det_engine.precomputed_rental_net,
-            precomputed_income_totals=det_engine.precomputed_income_totals,
         )
-        _, fast_res = engine.run(fast_path=True)
-        eoy_nws, r_yr = fast_res
 
         terminal_nw = float(eoy_nws[-1])
-        terminal_net_worths.append(terminal_nw)
-        ruin_years.append(r_yr)
-        all_annual_nw.append(eoy_nws)
+        terminal_net_worths[trial_idx] = terminal_nw
+        ruin_years[trial_idx] = r_yr
+        all_annual_nw[trial_idx] = eoy_nws
 
         completed = trial_idx + 1
 
@@ -475,7 +959,9 @@ def run_monte_carlo(
                 and completed % intermediate_interval == 0
                 and completed != n):  # skip on last trial (final result handles it)
             partial = _build_partial_result(
-                terminal_net_worths, ruin_years, all_annual_nw,
+                terminal_net_worths[:completed],
+                ruin_years[:completed],
+                all_annual_nw[:completed],
                 None, det_annual, years, num_months,
                 start_year, config, completed,
             )
