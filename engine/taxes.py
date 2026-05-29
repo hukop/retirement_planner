@@ -486,3 +486,41 @@ def marginal_rates(
         "ca_marginal":      result.marginal_ca_rate,
         "combined_marginal": result.marginal_federal_rate + result.marginal_ca_rate,
     }
+
+
+# ---------------------------------------------------------------------------
+# Convenience: incremental tax for Roth conversion planning
+# ---------------------------------------------------------------------------
+def incremental_tax(
+    base_ordinary_income: float,
+    conversion_amount: float,
+    long_term_gains: float = 0.0,
+    ss_income: float = 0.0,
+    filing_status: FilingStatus = "married_jointly",
+) -> float:
+    """
+    Compute the additional tax owed from converting ``conversion_amount``
+    from a Traditional IRA to a Roth IRA, given existing ordinary income.
+
+    The conversion amount is added to ordinary income (IRS treats Roth
+    conversions as ordinary income in the year of conversion).
+
+    Returns
+    -------
+    Incremental tax in dollars (always >= 0).
+    """
+    tax_without = calculate_taxes(
+        ordinary_income=base_ordinary_income,
+        long_term_gains=long_term_gains,
+        ss_income=ss_income,
+        filing_status=filing_status,
+    ).total_tax
+
+    tax_with = calculate_taxes(
+        ordinary_income=base_ordinary_income + conversion_amount,
+        long_term_gains=long_term_gains,
+        ss_income=ss_income,
+        filing_status=filing_status,
+    ).total_tax
+
+    return max(0.0, tax_with - tax_without)

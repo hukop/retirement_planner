@@ -8,6 +8,7 @@ from ui.callbacks.runner_cb      import register_runner_callbacks
 from ui.callbacks.dynamic_cb     import register_dynamic_callbacks
 from ui.callbacks.forms_cb       import register_forms_callbacks
 from ui.callbacks.monte_carlo_cb import register_monte_carlo_callbacks
+from ui.callbacks.roth_conversion_cb import register_roth_conversion_callbacks
 
 def register_all_callbacks(app: dash.Dash):
     """Call this from app.py to hook up all interactivity."""
@@ -15,3 +16,4 @@ def register_all_callbacks(app: dash.Dash):
     register_dynamic_callbacks(app)
     register_forms_callbacks(app)
     register_monte_carlo_callbacks(app)
+    register_roth_conversion_callbacks(app)

@@ -157,6 +157,8 @@ def input_row(
     suffix:       str = "",             # e.g. "%"
     debounce:     bool = True,
     disabled:     bool = False,
+    persistence:  bool = False,
+    persistence_type: str = "session",
 ) -> html.Div:
     """
     A labeled numeric or text input with optional tooltip, prefix, and suffix.
@@ -183,6 +185,8 @@ def input_row(
         "debounce":    debounce,
         "className":   "form-control",
         "disabled":    disabled,
+        "persistence": persistence,
+        "persistence_type": persistence_type,
     }
     if value is not None:
         inp_kwargs["value"] = value

@@ -42,6 +42,7 @@ _NAV_ITEMS = [
     ("/real-estate",  "🏠", "Real Estate"),
     ("/projections",  "🔮", "Projections"),
     ("/monte-carlo",  "🎲", "Monte Carlo"),
+    ("/roth-conversion", "🔄", "Roth Conversion"),
 ]
 
 
@@ -202,6 +203,7 @@ def create_layout() -> html.Div:
             dcc.Store(id="profile-store",      data=initial_profile, storage_type="session"),
             dcc.Store(id="projection-store",   data=None,            storage_type="session"),
             dcc.Store(id="monte-carlo-store",  data=None,            storage_type="session"),
+            dcc.Store(id="roth-conversion-store", data=None,         storage_type="session"),
             dcc.Store(id="density-store",                            storage_type="local"),
             dcc.Store(id="theme-store",                              storage_type="local"),
 
@@ -241,6 +243,7 @@ _ROUTES: dict[str, str] = {
     "/real-estate":  "real-estate",
     "/projections":  "projections",
     "/monte-carlo":  "monte-carlo",
+    "/roth-conversion": "roth-conversion",
 }
 
 _PAGE_TITLES: dict[str, str] = {
@@ -252,6 +255,7 @@ _PAGE_TITLES: dict[str, str] = {
     "real-estate":  "🏠  Real Estate",
     "projections":  "🔮  Projections",
     "monte-carlo":  "🎲  Monte Carlo Simulation",
+    "roth-conversion": "🔄  Roth Conversion",
 }
 
 
@@ -278,8 +282,9 @@ def register_routing_callback(app: dash.Dash) -> None:
         State("profile-store",      "data"),
         State("projection-store",   "data"),
         State("monte-carlo-store",  "data"),
+        State("roth-conversion-store", "data"),
     )
-    def render_page(pathname: str, profile_data: dict, projection_data: dict, mc_data: dict):
+    def render_page(pathname: str, profile_data: dict, projection_data: dict, mc_data: dict, roth_data: dict):
         try:
             from ui.pages.dashboard    import layout as dashboard_layout
             from ui.pages.profile      import layout as profile_layout
@@ -289,6 +294,7 @@ def register_routing_callback(app: dash.Dash) -> None:
             from ui.pages.real_estate  import layout as real_estate_layout
             from ui.pages.projections  import layout as projections_layout
             from ui.pages.monte_carlo  import layout as monte_carlo_layout
+            from ui.pages.roth_conversion import layout as roth_conversion_layout
 
             page_key = _ROUTES.get(pathname or "/", "dashboard")
             title    = _PAGE_TITLES.get(page_key, "")
@@ -309,6 +315,8 @@ def register_routing_callback(app: dash.Dash) -> None:
                 content = projections_layout(profile_data, projection_data)
             elif page_key == "monte-carlo":
                 content = monte_carlo_layout(profile_data, mc_data)
+            elif page_key == "roth-conversion":
+                content = roth_conversion_layout(profile_data, roth_data)
             else:
                 content = _placeholder_page(page_key)
 
