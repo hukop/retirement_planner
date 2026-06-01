@@ -1,8 +1,8 @@
 """
 State Syncing Callbacks.
 
-Binds the explicit Save buttons across the application to pull component State
-from the DOM and synchronize it backward into the local `profile-store`.
+ALL tabs now auto-save on every input change (no button click needed).
+Save buttons have been removed from all pages since data persists instantly.
 """
 
 import dash
@@ -15,87 +15,209 @@ def _toast(msg: str, header: str = "Saved", icon: str = "success") -> dbc.Toast:
         msg, header=header, icon=icon, duration=3000, is_open=True
     )
 
+
+# ─────────────────────────────────────────────────────────────────────────
+# Shared profile-merge helper
+# ─────────────────────────────────────────────────────────────────────────
+def _merge_profile_data(profile_data: dict | None, filing: str, inflation: float,
+                        slf_n, slf_yr, slf_mo, slf_ret_yr, slf_life, slf_ss_ben, slf_ss_age,
+                        sp_n, sp_yr, sp_mo, sp_ret_yr, sp_life, sp_ss_ben, sp_ss_age,
+                        mc_seed, mc_mean, mc_std, mc_bond) -> dict:
+    """Merge all profile input values into profile_data dict."""
+    if not profile_data:
+        profile_data = {}
+
+    profile_data.update({
+        "filing_status": filing or "married_jointly",
+        "inflation_rate_pct": float(inflation or 3.0),
+    })
+
+    # Merge self person
+    existing_self = profile_data.get("self_person", {})
+    new_self = {
+        "name": slf_n,
+        "birth_year": slf_yr,
+        "birth_month": slf_mo,
+        "retirement_year": slf_ret_yr,
+        "life_expectancy": slf_life,
+        "ss_monthly_benefit": slf_ss_ben,
+        "ss_claiming_age": slf_ss_age,
+    }
+    profile_data["self_person"] = {**existing_self, **{k: v for k, v in new_self.items() if v is not None}}
+
+    # Merge spouse person
+    existing_spouse = profile_data.get("spouse", {})
+    new_spouse = {
+        "name": sp_n,
+        "birth_year": sp_yr,
+        "birth_month": sp_mo,
+        "retirement_year": sp_ret_yr,
+        "life_expectancy": sp_life,
+        "ss_monthly_benefit": sp_ss_ben,
+        "ss_claiming_age": sp_ss_age,
+    }
+    profile_data["spouse"] = {**existing_spouse, **{k: v for k, v in new_spouse.items() if v is not None}}
+
+    # Monte Carlo
+    existing_mc = profile_data.get("monte_carlo", {})
+    profile_data["monte_carlo"] = {
+        **existing_mc,
+        "mean_return_pct": float(mc_mean or 7.0),
+        "std_dev_pct": float(mc_std or 15.0),
+        "bond_mean_return_pct": float(mc_bond or 4.0),
+        "bond_std_dev_pct": 5.0,  # default
+        "random_seed": int(mc_seed) if mc_seed is not None and str(mc_seed).strip() != "" else None,
+    }
+
+    return profile_data
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Shared list-build helpers for income/expenses/investments/real-estate
+# ─────────────────────────────────────────────────────────────────────────
+def _build_incomes(names, owners, amounts, raises, starts, ends, styles) -> list:
+    """Build incomes list from form inputs, skipping deleted items."""
+    incomes = []
+    for i in range(len(names)):
+        if styles and i < len(styles) and styles[i] and styles[i].get("display") == "none":
+            continue
+        incomes.append({
+            "name": names[i] if i < len(names) else "",
+            "owner": owners[i] if i < len(owners) else "self",
+            "annual_amount": (amounts[i] if i < len(amounts) else 0) or 0.0,
+            "annual_raise_pct": (raises[i] if i < len(raises) else 0) or 0.0,
+            "start_age": (starts[i] if i < len(starts) else 0) or 0,
+            "end_age": (ends[i] if i < len(ends) else 0) or 0,
+        })
+    return incomes
+
+
+def _build_expenses(rec_names, rec_cats, rec_amts, rec_pcts, rec_infs, rec_styles,
+                    otex_names, otex_amts, otex_years, otex_infs, otex_styles):
+    """Build expenses + one_time_expenses lists from form inputs."""
+    expenses = []
+    for i in range(len(rec_cats)):
+        if rec_styles and i < len(rec_styles) and rec_styles[i] and rec_styles[i].get("display") == "none":
+            continue
+        name = ((rec_names[i] if i < len(rec_names) else "") or "").strip()
+        if not name:
+            name = (rec_cats[i] if i < len(rec_cats) else "other") or "other"
+        expenses.append({
+            "name": name,
+            "category": rec_cats[i] if i < len(rec_cats) else "other",
+            "monthly_amount": (rec_amts[i] if i < len(rec_amts) else 0) or 0.0,
+            "retirement_pct": float((rec_pcts[i] if i < len(rec_pcts) else 100) or 100.0),
+            "inflation_adjusted": bool((rec_infs[i] if i < len(rec_infs) else True)),
+        })
+
+    one_times = []
+    for i in range(len(otex_names)):
+        if otex_styles and i < len(otex_styles) and otex_styles[i] and otex_styles[i].get("display") == "none":
+            continue
+        one_times.append({
+            "name": otex_names[i] if i < len(otex_names) else "",
+            "amount": float((otex_amts[i] if i < len(otex_amts) else 0) or 0.0),
+            "year": int((otex_years[i] if i < len(otex_years) else 2030) or 2030),
+            "inflation_adjusted": bool((otex_infs[i] if i < len(otex_infs) else True)),
+        })
+    return expenses, one_times
+
+
+def _build_accounts(names, types, owners, bals, rets, contribs, costs, matches, styles) -> list:
+    """Build accounts list from form inputs."""
+    accounts = []
+    for i in range(len(names)):
+        if styles and i < len(styles) and styles[i] and styles[i].get("display") == "none":
+            continue
+        acc_type = types[i] if i < len(types) else "brokerage"
+        accounts.append({
+            "name": names[i] if i < len(names) else "",
+            "account_type": acc_type,
+            "owner": owners[i] if i < len(owners) else "joint",
+            "balance": float((bals[i] if i < len(bals) else 0) or 0),
+            "annual_return_pct": float((rets[i] if i < len(rets) else 0) or 0),
+            "annual_contribution": float((contribs[i] if i < len(contribs) else 0) or 0),
+            "cost_basis": float((costs[i] if i < len(costs) else 0) or 0) if acc_type == "brokerage" else 0.0,
+            "employer_match": float((matches[i] if i < len(matches) else 0) or 0) if acc_type == "401k" else 0.0,
+        })
+    return accounts
+
+
+def _build_properties(names, types, vals, apprs, has_morts, morts, rates, yrs, pmts, rents, exps, rent_infls, styles) -> list:
+    """Build properties list from form inputs."""
+    properties = []
+    for i in range(len(names)):
+        if styles and i < len(styles) and styles[i] and styles[i].get("display") == "none":
+            continue
+        has_mort = (has_morts[i] if i < len(has_morts) else "no") or "no"
+        properties.append({
+            "name": names[i] if i < len(names) else "",
+            "property_type": types[i] if i < len(types) else "primary",
+            "current_value": float((vals[i] if i < len(vals) else 0) or 0),
+            "appreciation_rate_pct": float((apprs[i] if i < len(apprs) else 0) or 0),
+            "mortgage_balance": float((morts[i] if i < len(morts) else 0) or 0) if has_mort == "yes" else 0.0,
+            "monthly_payment": float((pmts[i] if i < len(pmts) else 0) or 0) if has_mort == "yes" else 0.0,
+            "mortgage_rate_pct": float((rates[i] if i < len(rates) else 0) or 0) if has_mort == "yes" else 0.0,
+            "years_remaining": int((yrs[i] if i < len(yrs) else 0) or 0) if has_mort == "yes" else 0,
+            "monthly_rental_income": float((rents[i] if i < len(rents) else 0) or 0),
+            "monthly_expenses": float((exps[i] if i < len(exps) else 0) or 0),
+            "rental_inflation_rate_pct": float((rent_infls[i] if i < len(rent_infls) else 3.0) or 3.0),
+        })
+    return properties
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Registration
+# ─────────────────────────────────────────────────────────────────────────
 def register_forms_callbacks(app: dash.Dash):
 
-    # ── 1. Profile Page Sync ─────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════
+    # 1. PROFILE PAGE — auto-save on every input change
+    # ═══════════════════════════════════════════════════════════════════════
+
     @app.callback(
         Output("profile-store", "data", allow_duplicate=True),
-        Output("toast-container", "children", allow_duplicate=True),
-        Input("profile-save-btn", "n_clicks"),
-        State("profile-store", "data"),
-
         # Self
-        State("profile-self-name", "value"), 
-        State("profile-self-birth-year", "value"), State("profile-self-birth-month", "value"),
-        State("profile-self-retirement-year", "value"), State("profile-self-life-expectancy", "value"),
-        State("profile-self-ss-benefit", "value"), State("profile-self-ss-claiming-age", "value"),
-
+        Input("profile-self-name", "value"),
+        Input("profile-self-birth-year", "value"),
+        Input("profile-self-birth-month", "value"),
+        Input("profile-self-retirement-year", "value"),
+        Input("profile-self-life-expectancy", "value"),
+        Input("profile-self-ss-benefit", "value"),
+        Input("profile-self-ss-claiming-age", "value"),
         # Spouse
-        State("profile-spouse-name", "value"), 
-        State("profile-spouse-birth-year", "value"), State("profile-spouse-birth-month", "value"),
-        State("profile-spouse-retirement-year", "value"), State("profile-spouse-life-expectancy", "value"),
-        State("profile-spouse-ss-benefit", "value"), State("profile-spouse-ss-claiming-age", "value"),
-
+        Input("profile-spouse-name", "value"),
+        Input("profile-spouse-birth-year", "value"),
+        Input("profile-spouse-birth-month", "value"),
+        Input("profile-spouse-retirement-year", "value"),
+        Input("profile-spouse-life-expectancy", "value"),
+        Input("profile-spouse-ss-benefit", "value"),
+        Input("profile-spouse-ss-claiming-age", "value"),
         # Globals
-        State("profile-filing-status", "value"), State("profile-inflation-rate", "value"),
-
+        Input("profile-filing-status", "value"),
+        Input("profile-inflation-rate", "value"),
         # Monte Carlo
-        State("profile-mc-seed", "value"),
-
-        State("profile-mc-mean-return", "value"), State("profile-mc-std-dev", "value"),
-        State("profile-mc-bond-return", "value"),
-        prevent_initial_call=True
+        Input("profile-mc-seed", "value"),
+        Input("profile-mc-mean-return", "value"),
+        Input("profile-mc-std-dev", "value"),
+        Input("profile-mc-bond-return", "value"),
+        # State: current store
+        State("profile-store", "data"),
+        prevent_initial_call=True,
     )
-    def sync_profile(
-        n_clicks, profile_data,
+    def auto_sync_profile(
         slf_n, slf_yr, slf_mo, slf_ret_yr, slf_life, slf_ss_ben, slf_ss_age,
         sp_n, sp_yr, sp_mo, sp_ret_yr, sp_life, sp_ss_ben, sp_ss_age,
         filing, inflation,
-        mc_seed, mc_mean, mc_std, mc_bond
+        mc_seed, mc_mean, mc_std, mc_bond,
+        profile_data,
     ):
-        if not profile_data: profile_data = {}
-
-        profile_data.update({
-            "filing_status": filing or "married_jointly",
-            "inflation_rate_pct": float(inflation or 3.0),
-        })
-
-        # Merge with existing values so that debounced inputs that haven't
-        # reported their new value yet don't wipe out previously saved data.
-        existing_self = profile_data.get("self_person", {})
-        new_self = {
-            "name": slf_n, 
-            "birth_year": slf_yr, 
-            "birth_month": slf_mo,
-            "retirement_year": slf_ret_yr,
-            "life_expectancy": slf_life, "ss_monthly_benefit": slf_ss_ben,
-            "ss_claiming_age": slf_ss_age,
-        }
-        profile_data["self_person"] = {**existing_self, **{k: v for k, v in new_self.items() if v is not None}}
-
-        existing_spouse = profile_data.get("spouse", {})
-        new_spouse = {
-            "name": sp_n, 
-            "birth_year": sp_yr, 
-            "birth_month": sp_mo,
-            "retirement_year": sp_ret_yr,
-            "life_expectancy": sp_life, "ss_monthly_benefit": sp_ss_ben,
-            "ss_claiming_age": sp_ss_age,
-        }
-        profile_data["spouse"] = {**existing_spouse, **{k: v for k, v in new_spouse.items() if v is not None}}
-
-        # Monte Carlo
-        existing_mc = profile_data.get("monte_carlo", {})
-        profile_data["monte_carlo"] = {
-            **existing_mc,
-            "mean_return_pct": float(mc_mean or 7.0),
-            "std_dev_pct": float(mc_std or 15.0),
-            "bond_mean_return_pct": float(mc_bond or 4.0),
-            "bond_std_dev_pct": 5.0, # default
-            "random_seed": int(mc_seed) if mc_seed is not None and str(mc_seed).strip() != "" else None,
-        }
-
-        return profile_data, _toast("Profile settings updated locally.")
+        return _merge_profile_data(
+            profile_data, filing, inflation,
+            slf_n, slf_yr, slf_mo, slf_ret_yr, slf_life, slf_ss_ben, slf_ss_age,
+            sp_n, sp_yr, sp_mo, sp_ret_yr, sp_life, sp_ss_ben, sp_ss_age,
+            mc_seed, mc_mean, mc_std, mc_bond,
+        )
 
     # ── Reset Profile ────────────────────────────────────────────────────
     @app.callback(
@@ -105,7 +227,6 @@ def register_forms_callbacks(app: dash.Dash):
         prevent_initial_call=True,
     )
     def reset_profile(n_clicks):
-        """Reset the profile store to the built-in sample plan."""
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
         from engine.models import PlanProfile
@@ -114,7 +235,7 @@ def register_forms_callbacks(app: dash.Dash):
             "Profile reset to sample defaults.", header="Reset", icon="info"
         )
 
-    # ── Reactive UI Updates (Profile Summary) ───────────────────────────
+    # ── Reactive Profile Summary ─────────────────────────────────────────
     @app.callback(
         Output("profile-summary-container", "children"),
         Input("profile-store", "data"),
@@ -128,175 +249,155 @@ def register_forms_callbacks(app: dash.Dash):
         profile = PlanProfile.from_dict(profile_data)
         return _profile_summary(profile)
 
-    # ── 2. Income Page Sync ──────────────────────────────────────────────
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # 2. INCOME PAGE — auto-save on every input change
+    # ═══════════════════════════════════════════════════════════════════════
+
     @app.callback(
         Output("profile-store", "data", allow_duplicate=True),
-        Output("toast-container", "children", allow_duplicate=True),
-        Input("income-save-btn", "n_clicks"),
-        State("profile-store", "data"),
-        State({"type": "income-name", "index": ALL}, "value"),
-        State({"type": "income-owner", "index": ALL}, "value"),
-        State({"type": "income-amount", "index": ALL}, "value"),
-        State({"type": "income-raise", "index": ALL}, "value"),
-        State({"type": "income-start-age", "index": ALL}, "value"),
-        State({"type": "income-end-age", "index": ALL}, "value"),
+        Input({"type": "income-name", "index": ALL}, "value"),
+        Input({"type": "income-owner", "index": ALL}, "value"),
+        Input({"type": "income-amount", "index": ALL}, "value"),
+        Input({"type": "income-raise", "index": ALL}, "value"),
+        Input({"type": "income-start-age", "index": ALL}, "value"),
+        Input({"type": "income-end-age", "index": ALL}, "value"),
         State({"type": "income-item", "index": ALL}, "style"),
-        prevent_initial_call=True
+        State("profile-store", "data"),
+        prevent_initial_call=True,
     )
-    def sync_income(n_clicks, profile_data, names, owners, amounts, raises, starts, ends, styles):
-        if not dash.ctx.triggered_id or not profile_data:
+    def auto_sync_income(names, owners, amounts, raises, starts, ends, styles, profile_data):
+        if not profile_data:
             raise dash.exceptions.PreventUpdate
 
-        incomes = []
-        for i in range(len(names)):
-            if styles[i] and styles[i].get("display") == "none":
-                continue # Skip soft-deleted items
+        # Prevent clearing incomes when form has no items rendered
+        # (this happens when form is loading or re-rendering before items populate)
+        names_list = names or []
+        if not names_list and profile_data.get("incomes"):
+            # Form has no items but profile has incomes - don't clear them
+            raise dash.exceptions.PreventUpdate
 
-            incomes.append({
-                "name": names[i], "owner": owners[i],
-                "annual_amount": amounts[i] or 0.0, "annual_raise_pct": raises[i] or 0.0,
-                "start_age": starts[i] or 0, "end_age": ends[i] or 0,
-            })
-        profile_data["incomes"] = incomes
-        return profile_data, _toast("Income targets synced.")
+        profile_data["incomes"] = _build_incomes(names_list, owners or [], amounts or [],
+                                                  raises or [], starts or [], ends or [],
+                                                  styles or [])
+        return profile_data
 
-    # ── 3. Expenses Page Sync ────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════
+    # 3. EXPENSES PAGE — auto-save on every input change
+    # ═══════════════════════════════════════════════════════════════════════
+
     @app.callback(
         Output("profile-store", "data", allow_duplicate=True),
-        Output("toast-container", "children", allow_duplicate=True),
-        Input("expenses-save-btn", "n_clicks"),
+        Input({"type": "expense-name",       "index": ALL}, "value"),
+        Input({"type": "expense-category",   "index": ALL}, "value"),
+        Input({"type": "expense-amount",     "index": ALL}, "value"),
+        Input({"type": "expense-retire-pct", "index": ALL}, "value"),
+        Input({"type": "expense-inflation",  "index": ALL}, "value"),
+        Input({"type": "otex-name",          "index": ALL}, "value"),
+        Input({"type": "otex-amount",        "index": ALL}, "value"),
+        Input({"type": "otex-year",          "index": ALL}, "value"),
+        Input({"type": "otex-inflation",     "index": ALL}, "value"),
+        State({"type": "expense-item", "index": ALL}, "style"),
+        State({"type": "otex-item",    "index": ALL}, "style"),
         State("profile-store", "data"),
-        # Recurring expenses
-        State({"type": "expense-name",       "index": ALL}, "value"),
-        State({"type": "expense-category",   "index": ALL}, "value"),
-        State({"type": "expense-amount",     "index": ALL}, "value"),
-        State({"type": "expense-retire-pct", "index": ALL}, "value"),
-        State({"type": "expense-inflation",  "index": ALL}, "value"),
-        State({"type": "expense-item",       "index": ALL}, "style"),
-        # One-time expenses
-        State({"type": "otex-name",      "index": ALL}, "value"),
-        State({"type": "otex-amount",    "index": ALL}, "value"),
-        State({"type": "otex-year",      "index": ALL}, "value"),
-        State({"type": "otex-inflation", "index": ALL}, "value"),
-        State({"type": "otex-item",      "index": ALL}, "style"),
-        prevent_initial_call=True
+        prevent_initial_call=True,
     )
-    def sync_expenses(
-        n_clicks, profile_data,
-        rec_names, rec_cats, rec_amts, rec_pcts, rec_infs, rec_styles,
-        otex_names, otex_amts, otex_years, otex_infs, otex_styles,
+    def auto_sync_expenses(
+        rec_names, rec_cats, rec_amts, rec_pcts, rec_infs,
+        otex_names, otex_amts, otex_years, otex_infs,
+        rec_styles, otex_styles, profile_data,
     ):
-        if not dash.ctx.triggered_id or not profile_data:
+        if not profile_data:
             raise dash.exceptions.PreventUpdate
 
-        # Regular Expenses — name field is now read from the form directly
-        expenses = []
-        for i in range(len(rec_cats)):
-            if rec_styles[i] and rec_styles[i].get("display") == "none":
-                continue  # Skip soft-deleted items
+        # Prevent clearing expenses when form has no items rendered
+        # (this happens when form is loading or re-rendering before items populate)
+        rec_cats_list = rec_cats or []
+        otex_names_list = otex_names or []
+        if not rec_cats_list and not otex_names_list and profile_data.get("expenses"):
+            # Form has no items but profile has expenses - don't clear them
+            raise dash.exceptions.PreventUpdate
 
-            # Fall back to category if the user left the name blank
-            name = (rec_names[i] or "").strip() or rec_cats[i] or "Expense"
-            expenses.append({
-                "name": name,
-                "category": rec_cats[i], "monthly_amount": rec_amts[i] or 0.0,
-                "retirement_pct": float(rec_pcts[i] or 100.0),
-                "inflation_adjusted": bool(rec_infs[i]),
-            })
-
-        one_times = []
-        for i in range(len(otex_names)):
-            if otex_styles[i] and otex_styles[i].get("display") == "none":
-                continue
-
-            one_times.append({
-                "name": otex_names[i], "amount": float(otex_amts[i] or 0.0),
-                "year": int(otex_years[i] or 2030), "inflation_adjusted": bool(otex_infs[i])
-            })
-
+        expenses, one_times = _build_expenses(
+            rec_names or [], rec_cats_list, rec_amts or [], rec_pcts or [], rec_infs or [], rec_styles or [],
+            otex_names_list, otex_amts or [], otex_years or [], otex_infs or [], otex_styles or [],
+        )
         profile_data["expenses"] = expenses
         profile_data["one_time_expenses"] = one_times
-        return profile_data, _toast("Expense budgets synced.")
+        return profile_data
 
-    # ── 4. Investments Page Sync ─────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════
+    # 4. INVESTMENTS PAGE — auto-save on every input change
+    # ═══════════════════════════════════════════════════════════════════════
+
     @app.callback(
         Output("profile-store", "data", allow_duplicate=True),
-        Output("toast-container", "children", allow_duplicate=True),
-        Input("investments-save-btn", "n_clicks"),
-        State("profile-store", "data"),
-        State({"type": "acc-name", "index": ALL}, "value"),
-        State({"type": "acc-type", "index": ALL}, "value"),
-        State({"type": "acc-owner", "index": ALL}, "value"),
-        State({"type": "acc-balance", "index": ALL}, "value"),
-        State({"type": "acc-return", "index": ALL}, "value"),
-        State({"type": "acc-contrib", "index": ALL}, "value"),
-        State({"type": "acc-cost-basis", "index": ALL}, "value"),
-        State({"type": "acc-match", "index": ALL}, "value"),
+        Input({"type": "acc-name", "index": ALL}, "value"),
+        Input({"type": "acc-type", "index": ALL}, "value"),
+        Input({"type": "acc-owner", "index": ALL}, "value"),
+        Input({"type": "acc-balance", "index": ALL}, "value"),
+        Input({"type": "acc-return", "index": ALL}, "value"),
+        Input({"type": "acc-contrib", "index": ALL}, "value"),
+        Input({"type": "acc-cost-basis", "index": ALL}, "value"),
+        Input({"type": "acc-match", "index": ALL}, "value"),
         State({"type": "account-item", "index": ALL}, "style"),
-        prevent_initial_call=True
+        State("profile-store", "data"),
+        prevent_initial_call=True,
     )
-    def sync_investments(n_clicks, profile_data, names, types, owners, bals, rets, contribs, costs, matches, styles):
-        if not dash.ctx.triggered_id or not profile_data:
+    def auto_sync_investments(names, types, owners, bals, rets, contribs, costs, matches, styles, profile_data):
+        if not profile_data:
             raise dash.exceptions.PreventUpdate
 
-        accounts = []
-        for i in range(len(names)):
-            if styles[i] and styles[i].get("display") == "none":
-                continue # Skip soft-deleted items
+        # Prevent clearing accounts when form has no items rendered
+        names_list = names or []
+        if not names_list and profile_data.get("accounts"):
+            # Form has no items but profile has accounts - don't clear them
+            raise dash.exceptions.PreventUpdate
 
-            accounts.append({
-                "name": names[i], "account_type": types[i], "owner": owners[i],
-                "balance": float(bals[i] or 0), "annual_return_pct": float(rets[i] or 0),
-                "annual_contribution": float(contribs[i] or 0), 
-                "cost_basis": float(costs[i] or 0) if types[i] == "brokerage" else 0.0,
-                "employer_match": float(matches[i] or 0) if types[i] == "401k" else 0.0
-            })
-        profile_data["accounts"] = accounts
-        return profile_data, _toast("Portfolio structure synced.")
+        profile_data["accounts"] = _build_accounts(
+            names_list, types or [], owners or [], bals or [], rets or [],
+            contribs or [], costs or [], matches or [], styles or [],
+        )
+        return profile_data
 
-    # ── 5. Real Estate Page Sync ─────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════
+    # 5. REAL ESTATE PAGE — auto-save on every input change
+    # ═══════════════════════════════════════════════════════════════════════
+
     @app.callback(
         Output("profile-store", "data", allow_duplicate=True),
-        Output("toast-container", "children", allow_duplicate=True),
-        Input("real-estate-save-btn", "n_clicks"),
-        State("profile-store", "data"),
-        State({"type": "prop-name", "index": ALL}, "value"),
-        State({"type": "prop-type", "index": ALL}, "value"),
-        State({"type": "prop-value", "index": ALL}, "value"),
-        State({"type": "prop-appreciation", "index": ALL}, "value"),
-        State({"type": "prop-has-mortgage", "index": ALL}, "value"),
-        State({"type": "prop-mortgage-bal", "index": ALL}, "value"),
-        State({"type": "prop-mortgage-rate", "index": ALL}, "value"),
-        State({"type": "prop-mortgage-years", "index": ALL}, "value"),
-        State({"type": "prop-mortgage-payment", "index": ALL}, "value"),
-        State({"type": "prop-rent-inc", "index": ALL}, "value"),
-        State({"type": "prop-rent-exp", "index": ALL}, "value"),
-        State({"type": "prop-rent-inflation", "index": ALL}, "value"),
+        Input({"type": "prop-name", "index": ALL}, "value"),
+        Input({"type": "prop-type", "index": ALL}, "value"),
+        Input({"type": "prop-value", "index": ALL}, "value"),
+        Input({"type": "prop-appreciation", "index": ALL}, "value"),
+        Input({"type": "prop-has-mortgage", "index": ALL}, "value"),
+        Input({"type": "prop-mortgage-bal", "index": ALL}, "value"),
+        Input({"type": "prop-mortgage-rate", "index": ALL}, "value"),
+        Input({"type": "prop-mortgage-years", "index": ALL}, "value"),
+        Input({"type": "prop-mortgage-payment", "index": ALL}, "value"),
+        Input({"type": "prop-rent-inc", "index": ALL}, "value"),
+        Input({"type": "prop-rent-exp", "index": ALL}, "value"),
+        Input({"type": "prop-rent-inflation", "index": ALL}, "value"),
         State({"type": "property-item", "index": ALL}, "style"),
-        prevent_initial_call=True
+        State("profile-store", "data"),
+        prevent_initial_call=True,
     )
-    def sync_real_estate(
-        n_clicks, profile_data,
-        names, types, vals, apprs, has_morts, morts, rates, yrs, pmts, rents, exps, rent_infls, styles
+    def auto_sync_real_estate(
+        names, types, vals, apprs, has_morts, morts, rates, yrs, pmts,
+        rents, exps, rent_infls, styles, profile_data,
     ):
-        if not dash.ctx.triggered_id or not profile_data:
+        if not profile_data:
             raise dash.exceptions.PreventUpdate
 
-        properties = []
-        for i in range(len(names)):
-            if styles[i] and styles[i].get("display") == "none":
-                continue # Skip soft-deleted items
+        # Prevent clearing properties when form has no items rendered
+        names_list = names or []
+        if not names_list and profile_data.get("properties"):
+            # Form has no items but profile has properties - don't clear them
+            raise dash.exceptions.PreventUpdate
 
-            properties.append({
-                "name": names[i], "property_type": types[i],
-                "current_value": float(vals[i] or 0), "appreciation_rate_pct": float(apprs[i] or 0),
-                "mortgage_balance": float(morts[i] or 0) if has_morts[i] == "yes" else 0.0,
-                "monthly_payment": float(pmts[i] or 0) if has_morts[i] == "yes" else 0.0,
-                "mortgage_rate_pct": float(rates[i] or 0) if has_morts[i] == "yes" else 0.0,
-                "years_remaining": int(yrs[i] or 0) if has_morts[i] == "yes" else 0,
-                "monthly_rental_income": float(rents[i] or 0),
-                "monthly_expenses": float(exps[i] or 0),
-                "rental_inflation_rate_pct": float(rent_infls[i] or 3.0)
-            })
-        profile_data["properties"] = properties
-        return profile_data, _toast("Property ledger synced.")
+        profile_data["properties"] = _build_properties(
+            names_list, types or [], vals or [], apprs or [], has_morts or [],
+            morts or [], rates or [], yrs or [], pmts or [],
+            rents or [], exps or [], rent_infls or [], styles or [],
+        )
+        return profile_data

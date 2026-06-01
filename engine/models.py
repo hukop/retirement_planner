@@ -15,6 +15,43 @@ from typing import Literal, Optional
 
 
 # ---------------------------------------------------------------------------
+from datetime import date
+
+
+# Roth Conversion configuration
+# ---------------------------------------------------------------------------
+@dataclass
+class RothConversionConfig:
+    """
+    Parameters for a Roth conversion analysis.
+
+    Attributes
+    ----------
+    annual_amount : float
+        Dollar amount to convert each year during the window.
+    start_year : int
+        First calendar year in which conversions occur.
+    end_year : int
+        Last calendar year in which conversions occur (inclusive).
+    source_account_types : list[str]
+        Account types eligible as conversion sources.
+        Default: ["trad_ira"] (401k not supported in this version).
+    """
+
+    annual_amount: float = 50_000
+    start_year: int = 0          # 0 = current year
+    end_year: int = 0            # 0 = retirement year
+    source_account_types: list[str] = field(
+        default_factory=lambda: ["trad_ira"]
+    )
+
+    def __post_init__(self):
+        current_year = date.today().year
+        if self.start_year <= 0:
+            self.start_year = current_year
+        if self.end_year <= 0:
+            self.end_year = current_year + 10  # default 10-year window
+
 # Monte Carlo configuration
 # ---------------------------------------------------------------------------
 @dataclass
@@ -292,8 +329,12 @@ class PlanProfile:
     accounts: list[InvestmentAccount] = field(default_factory=list)
     properties: list[Property] = field(default_factory=list)
 
+
     # Monte Carlo configuration
     monte_carlo: MonteCarloConfig = field(default_factory=MonteCarloConfig)
+
+    # Roth Conversion configuration
+    roth_conversion: RothConversionConfig = field(default_factory=RothConversionConfig)
 
     # ------------------------------------------------------------------
     # Derived helpers
@@ -370,6 +411,7 @@ class PlanProfile:
             accounts=[safe_load(InvestmentAccount, a) for a in data.get("accounts", []) if isinstance(a, dict)],
             properties=[safe_load(Property, p) for p in data.get("properties", []) if isinstance(p, dict)],
             monte_carlo=safe_load(MonteCarloConfig, data.get("monte_carlo", {})),
+            roth_conversion=safe_load(RothConversionConfig, data.get("roth_conversion", {})),
         )
 
     @classmethod
@@ -441,4 +483,6 @@ class PlanProfile:
                          mortgage_rate_pct=5.5, years_remaining=25,
                          monthly_rental_income=3_200, monthly_expenses=800),
             ],
+            monte_carlo=MonteCarloConfig(),
+            roth_conversion=RothConversionConfig(),
         )

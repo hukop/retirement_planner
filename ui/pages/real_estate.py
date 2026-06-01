@@ -2,7 +2,7 @@
 Real Estate page.
 
 Contains:
-1. Properties dynamic list (Primary, Rental) 
+1. Properties dynamic list (Primary, Rental)
 2. Summary strip charting total real estate equity
 """
 
@@ -223,13 +223,13 @@ def _property_item(idx: int, prop: dict) -> html.Div:
 
 def _equity_bubble_chart(profile: PlanProfile) -> go.Figure:
     """A bubble chart showing Property Value vs Mortgage Balance, bubble size is Equity."""
-    
+
     names = []
     x_vals = []
     y_vals = []
     equity_sizes = []
     colors = []
-    
+
     for prop in profile.properties:
         pv = float(prop.current_value or 0)
         mb = float(prop.mortgage_balance or 0)
@@ -239,10 +239,10 @@ def _equity_bubble_chart(profile: PlanProfile) -> go.Figure:
         y_vals.append(mb)
         equity_sizes.append(equity)
         colors.append("#4a7af7" if prop.property_type == "primary" else "#34d399")
-        
+
     if not profile.properties:
         x_vals, y_vals, equity_sizes = [0], [0], [0]
-        
+
     fig = go.Figure(go.Scatter(
         x=x_vals,
         y=y_vals,
@@ -259,7 +259,7 @@ def _equity_bubble_chart(profile: PlanProfile) -> go.Figure:
         text=names,
         hovertemplate="<b>%{text}</b><br>Value: $%{x:,.0f}<br>Mortgage: $%{y:,.0f}<br>Equity: %{marker.size}<extra></extra>"
     ))
-    
+
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
         "title": {"text": "Equity Distribution", "x": 0.02, "xanchor": "left"},
@@ -268,7 +268,7 @@ def _equity_bubble_chart(profile: PlanProfile) -> go.Figure:
         "xaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["xaxis"], "title": "Property Value ($)"},
         "yaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["yaxis"], "title": "Mortgage Balance ($)", "autorange": "reversed"}, # Reversed so 0 mortgage is at the top
     })
-    
+
     fig.update_layout(**layout)
     return fig
 
@@ -276,7 +276,7 @@ def _equity_bubble_chart(profile: PlanProfile) -> go.Figure:
 def layout(profile_data: Optional[dict] = None) -> html.Div:
     """Render the real estate page."""
     profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
-    
+
     # ── Property List ───────────────────────────────────────────────────
     props_list = []
     if not profile.properties:
@@ -293,7 +293,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
             add_button("Add Property", btn_id="btn-add-property")
         ]
     )
-    
+
     # ── Equity Chart ────────────────────────────────────────────────────
     chart_section = section_card(
         title="📊  Value vs Liability",
@@ -310,10 +310,10 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
     total_val = sum(float(p.current_value or 0) for p in profile.properties)
     total_debt = sum(float(p.mortgage_balance or 0) for p in profile.properties)
     total_equity = total_val - total_debt
-    
-    net_rent_mo = sum((float(p.monthly_rental_income or 0) - float(p.monthly_expenses or 0) - float(p.monthly_payment or 0)) 
+
+    net_rent_mo = sum((float(p.monthly_rental_income or 0) - float(p.monthly_expenses or 0) - float(p.monthly_payment or 0))
                        for p in profile.properties if p.property_type == "rental")
-    
+
     strip = summary_row([
         ("Total Net Equity", f"${total_equity:,.0f}", "blue"),
         ("Total Property Value", f"${total_val:,.0f}", "green"),
@@ -325,14 +325,5 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
         [
             two_col(props_section, chart_section, left_width=8),
             strip,
-            html.Div(
-                html.Button(
-                    "💾  Save Updates",
-                    id="real-estate-save-btn",
-                    className="btn-primary-custom",
-                    n_clicks=0,
-                ),
-                style={"marginTop": "20px"},
-            ),
         ]
     )

@@ -477,6 +477,20 @@ input:focus {
   color: var(--text-primary) !important;
 }
 
+/* Radio Items */
+.dash-radioitems label {
+  color: var(--text-muted) !important;
+  font-size: 13px !important;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.dash-radioitems label:hover {
+  color: var(--text-primary) !important;
+}
+
 /* Sliders */
 .rc-slider-track {
   background: var(--grad-blue) !important;
@@ -1113,4 +1127,3 @@ input[type="number"] {
   margin-bottom: 12px;
   color: #858585;
 }
-

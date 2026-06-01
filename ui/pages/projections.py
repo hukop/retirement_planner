@@ -34,8 +34,8 @@ _COLORS = {
 
     # Flows
     "income":  "#34d399",   # Green
-    "expense": "#f87171",   # Red
-    "taxes":   "#fb923c",   # Orange
+    "expense": "#dc2626",   # Dark Red
+    "taxes":   "#8b5cf6",   # Purple
     "deficit": "#f43f5e",   # Rose
     "surplus": "#2dd4bf",   # Teal
 
@@ -146,26 +146,26 @@ def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int, profile: PlanProf
 def _cashflow_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
     fig = go.Figure()
     years = annual_df["year"]
-    
+
     # Inflows (Income + Withdrawals)
     total_in = annual_df["income_total"] + annual_df["withdrawal_total"]
     fig.add_trace(go.Bar(
         x=years, y=total_in, name="Total Capital Inflow",
         marker_color=_COLORS["income"], opacity=0.85
     ))
-    
+
     # Outflows (Expenses)
     fig.add_trace(go.Bar(
         x=years, y=annual_df["expense_total"], name="Base Expenses",
         marker_color=_COLORS["expense"], opacity=0.85
     ))
-    
+
     # Taxes (Stacked on top of expenses visually? Let's just group them next to it for now)
     fig.add_trace(go.Bar(
         x=years, y=annual_df["tax_annual_est"], name="Taxes Paid",
         marker_color=_COLORS["taxes"], opacity=0.85
     ))
-    
+
     # Net Surplus/Deficit line
     fig.add_trace(go.Scatter(
         x=years, y=annual_df["surplus_deficit"], name="Surplus/Deficit",
@@ -188,7 +188,7 @@ def _cashflow_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
 # ---------------------------------------------------------------------------
 def _drawdown_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
     fig = go.Figure()
-    
+
     fig.add_trace(go.Scatter(
         x=annual_df["year"], y=annual_df["balance_investment_total"],
         name="Investment Portfolio", mode="lines+markers",
@@ -213,29 +213,29 @@ def _income_sources_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
     # Filter to retirement years only (simplifies view)
     ret_df = annual_df[annual_df["year"] >= retire_yr]
     years = ret_df["year"]
-    
+
     fig = go.Figure()
-    
+
     # 1. Social Security
     ss_total = ret_df["income_ss_self"] + ret_df["income_ss_spouse"]
     fig.add_trace(go.Bar(
         x=years, y=ss_total, name="Social Security",
         marker_color=_COLORS["ss"],
     ))
-    
+
     # 2. Portfolio Withdrawals
     fig.add_trace(go.Bar(
         x=years, y=ret_df["withdrawal_total"], name="Account Withdrawals",
         marker_color=_COLORS["withdrawals"],
     ))
-    
+
     # 3. Rental Net Income
     if "income_rental_net" in ret_df:
         fig.add_trace(go.Bar(
             x=years, y=ret_df["income_rental_net"], name="Net Rental CF",
             marker_color=_COLORS["rental"],
         ))
-        
+
     # 4. Any continuing salary
     salary = ret_df["income_salary_self"] + ret_df["income_salary_spouse"]
     fig.add_trace(go.Bar(
@@ -258,13 +258,13 @@ def _income_sources_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
 def layout(profile_data: Optional[dict] = None, projection_data: Optional[list] = None) -> html.Div:
     profile, annual_df = _get_projection_data(profile_data, projection_data)
     ret_yr = profile.retirement_year_self
-    
+
     # Build charts
     nw_fig     = _nw_details_chart(annual_df, ret_yr, profile)  # pass profile for correct account classification
     cash_fig   = _cashflow_chart(annual_df, ret_yr)
     draw_fig   = _drawdown_chart(annual_df, ret_yr)
     inflow_fig = _income_sources_chart(annual_df, ret_yr)
-    
+
     # Interactive view controls wrapper (to be functionalized in Phase 13)
     controls = html.Div(
         [
@@ -277,12 +277,12 @@ def layout(profile_data: Optional[dict] = None, projection_data: Optional[list] 
                 ],
                 value="annual",
                 inline=True,
-                style={"color": "var(--text-primary)", "fontSize": "13px"}
+                style={"color": "var(--text-muted)", "fontSize": "13px"}
             )
         ],
         style={"marginBottom": "20px"}
     )
-    
+
     return html.Div(
         [
             html.Div(
@@ -293,20 +293,14 @@ def layout(profile_data: Optional[dict] = None, projection_data: Optional[list] 
                     controls,
                 ]
             ),
-            
-            # Row 1 of Charts
-            two_col(
-                section_card("Detailed Net Worth Accumulation", children=[dcc.Graph(figure=nw_fig, config={"displayModeBar": False})]),
-                section_card("Annual Cash Flow & Tax Withholding", children=[dcc.Graph(figure=cash_fig, config={"displayModeBar": False})]),
-                left_width=6
-            ),
-            
+
+            # Charts - Full Width Single Column
+            section_card("Detailed Net Worth Accumulation", children=[dcc.Graph(figure=nw_fig, config={"displayModeBar": False})]),
+
+            section_card("Annual Cash Flow & Tax Withholding", children=[dcc.Graph(figure=cash_fig, config={"displayModeBar": False})]),
+
             # Row 2 of Charts
-            two_col(
-                section_card("Retirement Inflows (Stacked)", children=[dcc.Graph(figure=inflow_fig, config={"displayModeBar": False})]),
-                section_card("Investment Portfolio Drawdown Projection", children=[dcc.Graph(figure=draw_fig, config={"displayModeBar": False})]),
-                left_width=6
-            ),
-            
+            section_card("Retirement Inflows (Stacked)", children=[dcc.Graph(figure=inflow_fig, config={"displayModeBar": False})]),
+
         ]
     )

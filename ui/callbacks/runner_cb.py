@@ -21,10 +21,10 @@ APP_DATA_DIR = Path("data/profiles")
 DEFAULT_PLAN_FILE = APP_DATA_DIR / "my_plan.json"
 
 def register_runner_callbacks(app: dash.Dash):
-    
+
     # Ensure data dir exists
     APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     # ── Run Projections ──────────────────────────────────────────────────
     @app.callback(
         Output("projection-store", "data"),
@@ -37,16 +37,16 @@ def register_runner_callbacks(app: dash.Dash):
     def run_engine(n_clicks_top, profile_data):
         if not dash.ctx.triggered_id:
             raise dash.exceptions.PreventUpdate
-            
+
         try:
             profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
-            
+
             # Basic validation check to ensure run_projection has what it needs
             if not profile.self_person or profile.self_person.current_age is None:
                  raise ValueError("Incomplete Profile: Self current age is required.")
-                 
+
             _, annual_df = run_projection(profile)
-            
+
             toast = dbc.Toast(
                 "Projections calculated successfully. All charts updated.",
                 header="Engine Success",
@@ -54,11 +54,11 @@ def register_runner_callbacks(app: dash.Dash):
                 duration=4000,
                 is_open=True,
             )
-            
+
             # Save the records back to the store and navigate to projections page
             records = annual_df.to_dict("records")
             return records, "/projections", toast
-            
+
         except Exception as e:
             err_toast = dbc.Toast(
                 f"Calculation failed: {str(e)}",
@@ -80,17 +80,17 @@ def register_runner_callbacks(app: dash.Dash):
     def save_plan(n_clicks, profile_data):
         if not profile_data:
             raise dash.exceptions.PreventUpdate
-            
+
         try:
             import tkinter as tk
             from tkinter import filedialog
-            
+
             default_filename = profile_data.get("plan_name", "my_retirement_plan").replace(" ", "_").lower() + ".json"
-            
+
             root = tk.Tk()
             root.attributes("-topmost", True)
             root.withdraw()
-            
+
             file_path = filedialog.asksaveasfilename(
                 parent=root,
                 defaultextension=".json",
@@ -99,7 +99,7 @@ def register_runner_callbacks(app: dash.Dash):
                 title="Save Retirement Plan"
             )
             root.destroy()
-            
+
             if not file_path:
                 return dash.no_update, dbc.Toast(
                     "Save cancelled.",
@@ -108,11 +108,11 @@ def register_runner_callbacks(app: dash.Dash):
                     duration=3000,
                     is_open=True,
                 )
-                
+
             import json
             with open(file_path, "w") as f:
                 json.dump(profile_data, f, indent=2)
-                
+
             return dash.no_update, dbc.Toast(
                 f"Plan saved to: {file_path}",
                 header="Save Success",
@@ -135,14 +135,18 @@ def register_runner_callbacks(app: dash.Dash):
     def load_plan(contents, filename):
         if contents is None:
             raise dash.exceptions.PreventUpdate
-            
+
         try:
+            # Validate file extension
+            if not filename.lower().endswith('.json'):
+                raise ValueError("Only JSON files are supported")
+
             import base64
             # contents look like "data:application/json;base64,eyJwbGFu..."
             content_type, content_string = contents.split(',')
             decoded = base64.b64decode(content_string)
             data = json.loads(decoded.decode('utf-8'))
-                
+
             return data, "/", dbc.Toast(
                 f"Plan '{filename}' loaded successfully.", header="Load Success", icon="success", duration=3000, is_open=True
             )

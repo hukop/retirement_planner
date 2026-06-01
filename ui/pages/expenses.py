@@ -150,7 +150,7 @@ def _expense_pie_chart(profile: PlanProfile) -> go.Figure:
     """Pie chart to show the breakdown of current recurring expenses."""
     labels = []
     values = []
-    
+
     # Define a set of colors mapping to categories for consistency
     cat_colors = {
         "housing": "#4a7af7",      # blue
@@ -160,9 +160,9 @@ def _expense_pie_chart(profile: PlanProfile) -> go.Figure:
         "discretionary": "#a78bfa",# purple
         "other": "#2dd4bf"         # teal
     }
-    
+
     colors = []
-    
+
     for exp in profile.expenses:
         amt = float(exp.monthly_amount or 0)
         if amt > 0:
@@ -170,10 +170,10 @@ def _expense_pie_chart(profile: PlanProfile) -> go.Figure:
             labels.append(cat_str)
             values.append(amt)
             colors.append(cat_colors.get(exp.category, "#94a3b8"))
-            
+
     if not values:
         labels, values, colors = ["No Expenses"], [1], ["#1c2540"]
-        
+
     fig = go.Figure(go.Pie(
         labels=labels,
         values=values,
@@ -183,7 +183,7 @@ def _expense_pie_chart(profile: PlanProfile) -> go.Figure:
         textfont=dict(size=11, family="Inter"),
         hovertemplate="%{label}: $%{value:,.0f}/mo<extra></extra>",
     ))
-    
+
     total = sum(values) if values[0] != 1 or labels[0] != "No Expenses" else 0
     fig.add_annotation(
         text=f"${total:,.0f}<br><span style='font-size:10px'>/ month</span>",
@@ -191,7 +191,7 @@ def _expense_pie_chart(profile: PlanProfile) -> go.Figure:
         font=dict(size=15, color="var(--text-primary)", family="Inter"),
         align="center",
     )
-    
+
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
         "title": {"text": "Current Breakdown", "x": 0.02, "xanchor": "left"},
@@ -205,7 +205,7 @@ def _expense_pie_chart(profile: PlanProfile) -> go.Figure:
 def layout(profile_data: Optional[dict] = None) -> html.Div:
     """Render the expenses page."""
     profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
-    
+
     # ── Recurring Expenses ───────────────────────────────────────────────
     expenses_list = []
     if not profile.expenses:
@@ -222,7 +222,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
             add_button("Add Recurring Expense", btn_id="btn-add-expense")
         ]
     )
-    
+
     # ── One-Time Expenses ────────────────────────────────────────────────
     otex_list = []
     if not profile.one_time_expenses:
@@ -230,7 +230,7 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
     else:
         for idx, otex in enumerate(profile.one_time_expenses):
             otex_list.append(_one_time_expense_item(idx, otex.__dict__))
-            
+
     onetime_section = section_card(
         title="🎯  One-Time Expenses",
         children=[
@@ -253,10 +253,10 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     # ── Summary Strip ────────────────────────────────────────────────────
     current_annual = sum((float(e.monthly_amount or 0)) * 12 for e in profile.expenses)
-    
+
     # Estimate retirement annual cost (roughly, un-inflated)
     retire_annual = sum((float(e.monthly_amount or 0)) * 12 * (float(e.retirement_pct or 100) / 100) for e in profile.expenses)
-    
+
     strip = summary_row([
         ("Current Annual Spend", f"${current_annual:,.0f}/yr", "amber"),
         ("Retirement Annual Spend (Est)", f"${retire_annual:,.0f}/yr", "blue"),
@@ -267,14 +267,5 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
         [
             two_col(recurring_section, html.Div([chart_section, onetime_section]), left_width=7),
             strip,
-            html.Div(
-                html.Button(
-                    "💾  Save Updates",
-                    id="expenses-save-btn",
-                    className="btn-primary-custom",
-                    n_clicks=0,
-                ),
-                style={"marginTop": "20px"},
-            ),
         ]
     )

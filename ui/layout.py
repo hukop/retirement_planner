@@ -92,7 +92,7 @@ def _sidebar() -> html.Div:
                 [
                     html.Div("PLAN", className="nav-section-label"),
                     *[_nav_link(href, icon, label) for href, icon, label in _NAV_ITEMS],
-                    
+
                     html.Div("SETTINGS", className="nav-section-label", style={"marginTop": "20px"}),
                     html.Div(
                         dbc.Select(
@@ -165,6 +165,7 @@ def _topbar() -> html.Div:
                             style={"marginLeft": "8px"},
                         ),
                         multiple=False,
+                        accept=".json",
                     ),
                     html.Button(
                         "▶  Run Projections",

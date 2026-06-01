@@ -365,21 +365,14 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
                 _profile_summary(profile),
                 id="profile-summary-container"
             ),
-            # Save button row
+            # Reset button row (save is automatic)
             html.Div(
                 [
-                    html.Button(
-                        "💾  Save Profile",
-                        id="profile-save-btn",
-                        className="btn-primary-custom",
-                        n_clicks=0,
-                    ),
                     html.Button(
                         "↺  Reset to Defaults",
                         id="profile-reset-btn",
                         className="btn-ghost",
                         n_clicks=0,
-                        style={"marginLeft": "10px"},
                     ),
                 ],
                 style={"marginTop": "20px", "display": "flex", "alignItems": "center"},

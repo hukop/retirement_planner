@@ -468,11 +468,12 @@ class ProjectionEngine:
 
             # ── 6. Tax estimate (monthly, based on prior-year eff rate) ────
             if fast_path:
-                annual_income_est = (income_total - precomputed_rental_net[m]) * 12
+                annual_income_est = income_total * 12
             else:
                 annual_income_est = (
                     inc["income_salary_self"] + inc["income_salary_spouse"] +
-                    inc["income_other"] + inc["income_ss_self"] + inc["income_ss_spouse"]
+                    inc["income_other"] + inc["income_ss_self"] + inc["income_ss_spouse"] +
+                    inc["income_rental_net"]
                 ) * 12
 
             monthly_tax_est = self._monthly_tax_estimate(
@@ -780,7 +781,7 @@ class ProjectionEngine:
         """
         p = self.profile
         result = calculate_taxes(
-            ordinary_income=yr_state.income_ordinary + yr_state.rmd_total,
+            ordinary_income=yr_state.income_ordinary + yr_state.rmd_total + yr_state.income_rental,
             long_term_gains=yr_state.cap_gains,
             ss_income=yr_state.income_ss,
             filing_status=p.filing_status,
