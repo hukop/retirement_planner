@@ -475,8 +475,23 @@ def _build_fast_context(
     annual_ss = ss_totals.reshape(-1, 12).sum(axis=1)
     start_net_worth = float(
         initial_balances.sum()
-        + sum(float(prop.net_equity) for prop in profile.properties)
+        + sum(float(prop.net_equity) for prop in profile.properties if prop.property_type != "primary")
     )
+    
+    # Exclude primary residence equity from re_equity for Monte Carlo
+    re_equity_array = np.asarray(det_engine.precomputed_re_equity, dtype=float).copy()
+    primary_residences = [prop for prop in profile.properties if prop.property_type == "primary"]
+    if primary_residences:
+        # Build a temporary property portfolio for primary residences to compute their equity trajectory
+        from engine.real_estate import build_property_portfolio
+        primary_portfolio = build_property_portfolio(primary_residences)
+        primary_equity_monthly = np.zeros(num_months)
+        for m in range(num_months):
+            primary_equity_monthly[m] = sum(s.net_equity for s in primary_portfolio)
+            # Step forward each month
+            for prop in primary_portfolio:
+                prop.step_month(current_year=det_engine.start_year + m // 12)
+        re_equity_array -= primary_equity_monthly
 
     return _FastMonteCarloContext(
         num_months=num_months,
@@ -484,7 +499,7 @@ def _build_fast_context(
         filing_status=profile.filing_status,
         income_totals=income_totals,
         expense_totals=np.asarray(det_engine.precomputed_expense_totals, dtype=float),
-        re_equity=np.asarray(det_engine.precomputed_re_equity, dtype=float),
+        re_equity=re_equity_array,
         taxable_monthly_income=taxable_monthly_income,
         annual_income_ordinary=annual_income_ordinary,
         annual_ss=annual_ss,

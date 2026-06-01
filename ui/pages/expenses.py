@@ -265,7 +265,11 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
 
     return html.Div(
         [
-            two_col(recurring_section, html.Div([chart_section, onetime_section]), left_width=7),
+            two_col(
+                html.Div([recurring_section, onetime_section]),
+                html.Div([chart_section]),
+                left_width=7
+            ),
             strip,
         ]
     )
