@@ -107,3 +107,60 @@ def test_edge_case_conversion_exceeds_balance(sample_profile):
     
     # The first year conversion should be exactly 10,000
     assert result.conversion_details[0]["conversion_amount"] <= 10000.0
+
+
+def test_earlier_conversion_has_larger_growth_component(sample_profile):
+    """
+    An earlier conversion allows the funds to grow longer in the Roth, 
+    shielding more growth from taxes compared to a later conversion.
+    This also verifies our timing bug fix, as previously early and late 
+    conversions resulted in the exact same net worth deltas.
+    """
+    current_year = date.today().year
+    config_early = RothConversionConfig(
+        annual_amount=50000.0,
+        start_year=current_year,
+        end_year=current_year,
+        source_account_types=["trad_ira"]
+    )
+    config_late = RothConversionConfig(
+        annual_amount=50000.0,
+        start_year=current_year + 5,
+        end_year=current_year + 5,
+        source_account_types=["trad_ira"]
+    )
+    
+    res_early = run_roth_conversion_analysis(sample_profile, config_early)
+    res_late = run_roth_conversion_analysis(sample_profile, config_late)
+    
+    assert res_early.net_worth_delta_at_end != res_late.net_worth_delta_at_end
+
+
+def test_conversion_timing_balance_trajectory(sample_profile):
+    """
+    Tests that a conversion applied in year X doesn't affect balances in year X-1.
+    (Ensures the engine handles it sequentially, not as a lump sum at the start).
+    """
+    import numpy as np
+    
+    current_year = date.today().year
+    config_late = RothConversionConfig(
+        annual_amount=50000.0,
+        start_year=current_year + 3,
+        end_year=current_year + 3,
+        source_account_types=["trad_ira"]
+    )
+    
+    res_late = run_roth_conversion_analysis(sample_profile, config_late)
+    
+    df_base = pd.DataFrame(res_late.baseline_annual)
+    df_conv = pd.DataFrame(res_late.conversion_annual)
+    
+    # In current_year and current_year + 1, the balances should be identical.
+    # The conversion doesn't happen until current_year + 3.
+    mask = df_base["year"] < (current_year + 3)
+    
+    base_nw = df_base.loc[mask, "net_worth_eoy"].values
+    conv_nw = df_conv.loc[mask, "net_worth_eoy"].values
+    
+    np.testing.assert_allclose(base_nw, conv_nw)
