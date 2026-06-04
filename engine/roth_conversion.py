@@ -41,7 +41,6 @@ from engine.projections import ProjectionEngine, run_projection
 from engine.taxes import calculate_taxes, marginal_rates
 
 
-
 # ---------------------------------------------------------------------------
 # Result
 # ---------------------------------------------------------------------------
@@ -105,111 +104,6 @@ def _deep_copy_profile(profile: PlanProfile) -> PlanProfile:
     return PlanProfile.from_dict(profile.to_dict())
 
 
-def _compute_incremental_tax(
-    base_ordinary: float,
-    conversion_amount: float,
-    long_term_gains: float,
-    ss_income: float,
-    filing_status: str,
-) -> float:
-    """
-    Compute the additional tax owed from converting ``conversion_amount``.
-
-    Returns
-    -------
-    Incremental tax (always >= 0).
-    """
-    tax_without = calculate_taxes(
-        ordinary_income=base_ordinary,
-        long_term_gains=long_term_gains,
-        ss_income=ss_income,
-        filing_status=filing_status,
-    ).total_tax
-
-    tax_with = calculate_taxes(
-        ordinary_income=base_ordinary + conversion_amount,
-        long_term_gains=long_term_gains,
-        ss_income=ss_income,
-        filing_status=filing_status,
-    ).total_tax
-
-    return max(0.0, tax_with - tax_without)
-
-
-def _estimate_annual_ordinary_income(
-    profile: PlanProfile,
-    year: int,
-    start_year: int,
-) -> float:
-    """
-    Estimate total ordinary income for a given year (salary only, pre-retirement).
-    Used to compute marginal tax bracket impact of conversions.
-    """
-    years_of_raises = max(0, year - start_year)
-    total = 0.0
-    for src in profile.incomes:
-        # Check if the owner is still working
-        owner = profile.self_person if src.owner == "self" else profile.spouse
-        if year < owner.retirement_year:
-            annual = src.annual_amount * (1 + src.annual_raise_pct / 100) ** years_of_raises
-            total += annual
-    return total
-
-
-def _estimate_annual_rental_income(
-    profile: PlanProfile,
-    year: int,
-    start_year: int,
-) -> float:
-    """
-    Estimate net rental income for a given year (considering appreciation and inflation).
-    """
-    years_elapsed = max(0, year - start_year)
-    cola = profile.inflation_rate_pct / 100
-
-    total_rental_net = 0.0
-    for prop in profile.properties:
-        # Monthly income and expenses inflate
-        monthly_income = prop.monthly_rental_income * (1 + prop.rental_inflation_rate_pct / 100) ** years_elapsed
-        monthly_expenses = prop.monthly_expenses * (1 + prop.rental_inflation_rate_pct / 100) ** years_elapsed
-
-        annual_net = (monthly_income - monthly_expenses) * 12
-        total_rental_net += annual_net
-
-    return max(0.0, total_rental_net)
-
-
-def _estimate_annual_ss_income(
-    profile: PlanProfile,
-    year: int,
-    start_year: int,
-) -> float:
-    """
-    Estimate annual Social Security income for a given year.
-    """
-    from engine.social_security import compute_ss_benefit
-
-    cola = profile.inflation_rate_pct / 100
-    total_ss = 0.0
-
-    for person, person_role in [(profile.self_person, "self"), (profile.spouse, "spouse")]:
-        # Compute SS benefit for this person
-        ss_benefit = compute_ss_benefit(person, start_year)
-
-        # Check if they're claiming this year
-        if year >= ss_benefit.claim_year:
-            # Get the monthly amount for this year
-            monthly_amount = ss_benefit.monthly_in_year(year, cola)
-            total_ss += monthly_amount * 12
-
-    return total_ss
-
-
-def _grow_balance(balance: float, rate_pct: float, years: int) -> float:
-    """Compound a balance at the given annual rate for a number of years."""
-    return balance * ((1 + rate_pct / 100) ** years)
-
-
 # ---------------------------------------------------------------------------
 # Main public API
 # ---------------------------------------------------------------------------
@@ -223,8 +117,10 @@ def run_roth_conversion_analysis(
 
     Runs two deterministic projections:
       1. **Baseline** — the profile as-is (no conversions)
-      2. **Conversion** — a modified profile where ``annual_amount`` is moved
-         from Traditional IRA → Roth IRA each year during the conversion window
+      2. **Conversion** — the same profile but with ``annual_amount`` moved
+         from Traditional IRA → Roth IRA in January of each scheduled year,
+         inside the month-by-month simulation loop (i.e. at live, compounded
+         balances for that year — not a lump-sum applied at t=0).
 
     Parameters
     ----------
@@ -249,16 +145,17 @@ def run_roth_conversion_analysis(
         end_year = start_year
 
     # ── Step 1: Baseline projection ──────────────────────────────────────
-    _, baseline_annual = run_projection(profile)
+    baseline_engine = ProjectionEngine(profile)
+    _, baseline_annual = baseline_engine.run()
 
-    # ── Step 2: Build conversion-modified profile ────────────────────────
+    # ── Step 2: Build conversion profile ────────────────────────────────
+    # Ensure a Roth IRA account exists on the conversion profile so the
+    # engine has somewhere to deposit converted funds.
     conv_profile = _deep_copy_profile(profile)
 
-    # Find source (trad_ira) and destination (roth_ira) accounts
     source_indices = _find_source_accounts(conv_profile, config.source_account_types)
     roth_idx = _find_roth_account(conv_profile)
 
-    # Auto-create a Roth IRA if the user doesn't have one yet.
     if roth_idx is None:
         conv_profile.accounts.append(InvestmentAccount(
             name="Roth IRA (Auto-created)",
@@ -268,7 +165,6 @@ def run_roth_conversion_analysis(
             annual_return_pct=7.0,
             owner="self"
         ))
-        roth_idx = len(conv_profile.accounts) - 1
 
     # If no eligible source accounts exist, return baseline as-is
     if not source_indices:
@@ -288,259 +184,56 @@ def run_roth_conversion_analysis(
             end_year=end_year,
         )
 
-    # ── Step 3: Perform year-by-year conversions on the profile ──────────
-    conversion_details: list[dict] = []
-    total_converted = 0.0
-    total_tax_cost = 0.0
+    # ── Step 3: Run conversion projection via engine ─────────────────────
+    # Build the schedule: one entry per year in the conversion window.
+    conversion_schedule = {
+        yr: config.annual_amount
+        for yr in range(start_year, end_year + 1)
+    }
 
-    # Build a map of baseline withdrawal amounts by year (for tax calculations)
-    # Withdraw ordinary income (Trad IRA/401k) separately from capital gains (brokerage)
-    baseline_withdrawal_ordinary = {}
-    baseline_withdrawal_gains = {}
-    for _, row in baseline_annual.iterrows():
-        year_key = int(row["year"])
-        # withdrawal_ordinary = Trad IRA/401k withdrawals (taxed as ordinary income)
-        baseline_withdrawal_ordinary[year_key] = row.get("withdrawal_ordinary", 0.0)
-        # withdrawal_gains = capital gains from brokerage (taxed as long-term capital gains)
-        baseline_withdrawal_gains[year_key] = row.get("withdrawal_gains", 0.0)
-
-    for year in range(start_year, end_year + 1):
-        remaining = config.annual_amount
-        year_converted = 0.0
-
-        # Estimate the ordinary income for this year (for tax calculation)
-        base_ordinary = _estimate_annual_ordinary_income(
-            conv_profile, year, current_year
-        )
-
-        # Add rental income (taxable as ordinary income)
-        base_ordinary += _estimate_annual_rental_income(
-            conv_profile, year, current_year
-        )
-
-        # Add withdrawal income from baseline projection
-        # Withdrawals from Traditional IRA/401k are ordinary income
-        withdrawal_ordinary = baseline_withdrawal_ordinary.get(year, 0.0)
-        base_ordinary += withdrawal_ordinary
-
-        # Add Social Security income
-        base_ss_income = _estimate_annual_ss_income(
-            conv_profile, year, current_year
-        )
-
-        # Capital gains from withdrawals (from brokerage account)
-        base_cap_gains = baseline_withdrawal_gains.get(year, 0.0)
-
-        # Withdraw from source accounts
-        for src_idx in source_indices:
-            if remaining <= 0:
-                break
-            source_acct = conv_profile.accounts[src_idx]
-            available = source_acct.balance
-            if available <= 0:
-                continue
-
-            amount_to_convert = min(remaining, available)
-
-            # Reduce source balance
-            conv_profile.accounts[src_idx] = InvestmentAccount(
-                name=source_acct.name,
-                account_type=source_acct.account_type,
-                balance=source_acct.balance - amount_to_convert,
-                cost_basis=source_acct.cost_basis,
-                annual_contribution=source_acct.annual_contribution,
-                employer_match=source_acct.employer_match,
-                annual_return_pct=source_acct.annual_return_pct,
-                owner=source_acct.owner,
-            )
-
-            year_converted += amount_to_convert
-            remaining -= amount_to_convert
-
-        if year_converted > 0:
-            # Increase Roth balance
-            roth_acct = conv_profile.accounts[roth_idx]
-            conv_profile.accounts[roth_idx] = InvestmentAccount(
-                name=roth_acct.name,
-                account_type=roth_acct.account_type,
-                balance=roth_acct.balance + year_converted,
-                cost_basis=roth_acct.cost_basis,
-                annual_contribution=roth_acct.annual_contribution,
-                employer_match=roth_acct.employer_match,
-                annual_return_pct=roth_acct.annual_return_pct,
-                owner=roth_acct.owner,
-            )
-
-            # Compute incremental tax cost
-            incr_tax = _compute_incremental_tax(
-                base_ordinary=base_ordinary,
-                conversion_amount=year_converted,
-                long_term_gains=base_cap_gains,
-                ss_income=base_ss_income,
-                filing_status=conv_profile.filing_status,
-            )
-
-            # Deduct tax from brokerage account (most liquid source)
-            # This is crucial: taxes must actually reduce the portfolio in the
-            # conversion scenario, otherwise the timing of conversions doesn't matter
-            brokerage_idx = None
-            for i, acct in enumerate(conv_profile.accounts):
-                if acct.account_type == "brokerage":
-                    brokerage_idx = i
-                    break
-
-            if brokerage_idx is not None and incr_tax > 0:
-                brok_acct = conv_profile.accounts[brokerage_idx]
-                tax_paid = min(incr_tax, brok_acct.balance)  # Pay what we can afford
-                conv_profile.accounts[brokerage_idx] = InvestmentAccount(
-                    name=brok_acct.name,
-                    account_type=brok_acct.account_type,
-                    balance=brok_acct.balance - tax_paid,
-                    cost_basis=max(0, brok_acct.cost_basis - tax_paid),
-                    annual_contribution=brok_acct.annual_contribution,
-                    employer_match=brok_acct.employer_match,
-                    annual_return_pct=brok_acct.annual_return_pct,
-                    owner=brok_acct.owner,
-                )
-
-            # Compute marginal rates
-            rates = marginal_rates(
-                ordinary_income=base_ordinary + year_converted,
-                filing_status=conv_profile.filing_status,
-            )
-
-            conversion_details.append({
-                "year": year,
-                "conversion_amount": round(year_converted, 2),
-                "incremental_tax": round(incr_tax, 2),
-                "marginal_rate_federal": round(rates["federal_marginal"] * 100, 1),
-                "marginal_rate_ca": round(rates["ca_marginal"] * 100, 1),
-                "marginal_rate_combined": round(rates["combined_marginal"] * 100, 1),
-                "source_balance_after": round(
-                    sum(conv_profile.accounts[i].balance for i in source_indices), 2
-                ),
-                "roth_balance_after": round(conv_profile.accounts[roth_idx].balance, 2),
-            })
-
-            total_converted += year_converted
-            total_tax_cost += incr_tax
-
-        # Apply one year of growth to all accounts (approximate compounding
-        # between conversion years) using each account's own return rate
-        for i, acct in enumerate(conv_profile.accounts):
-            growth = acct.balance * (acct.annual_return_pct / 100)
-            conv_profile.accounts[i] = InvestmentAccount(
-                name=acct.name,
-                account_type=acct.account_type,
-                balance=acct.balance + growth,
-                cost_basis=acct.cost_basis,
-                annual_contribution=acct.annual_contribution,
-                employer_match=acct.employer_match,
-                annual_return_pct=acct.annual_return_pct,
-                owner=acct.owner,
-            )
-
-    # ── Step 4: Build a clean conversion profile ──────────────────────────
-    # The year-by-year loop above tracks transfers and applies manual growth
-    # that ProjectionEngine would double-count.  So we start fresh from the
-    # original profile and apply the total conversion as a lump-sum at today's
-    # balances (preferable to the old approach of growing to start_year then
-    # applying, which caused double-compounding).
-    #
-    # We do NOT deduct the incremental tax from any account balance here.
-    # The conversion tax is paid during the conversion years from that year's
-    # income/withdrawals, not as a lump sum at year 0.  Instead we inject the
-    # incremental tax into the annual tax column for the correct years below,
-    # which allows the projection engine's withdrawal logic to handle the
-    # actual cash flow impact.
-
-    conv_profile_final = _deep_copy_profile(profile)
-    source_indices_final = _find_source_accounts(conv_profile_final, config.source_account_types)
-    roth_idx_final = _find_roth_account(conv_profile_final)
-
-    if roth_idx_final is None:
-        conv_profile_final.accounts.append(InvestmentAccount(
-            name="Roth IRA (Auto-created)",
-            account_type="roth_ira",
-            balance=0.0,
-            cost_basis=0.0,
-            annual_return_pct=7.0,
-            owner="self"
-        ))
-        roth_idx_final = len(conv_profile_final.accounts) - 1
-
-    # Apply the lump-sum transfer at today's balances
-    cumulative_converted = total_converted
-
-    total_source_start = sum(
-        conv_profile_final.accounts[i].balance for i in source_indices_final
+    conv_engine = ProjectionEngine(
+        conv_profile,
+        conversion_schedule=conversion_schedule,
+        conversion_source_types=config.source_account_types,
     )
+    _, conversion_annual = conv_engine.run()
 
-    if total_source_start > 0 and cumulative_converted > 0:
-        actual_transfer = min(cumulative_converted, total_source_start)
+    # Conversion details come straight from the engine's event log.
+    conversion_details = conv_engine.conversion_events
+    total_converted = sum(e["conversion_amount"] for e in conversion_details)
+    total_tax_cost = sum(e["incremental_tax"] for e in conversion_details)
 
-        # Remove from source accounts (proportional to their balances)
-        remaining_to_remove = actual_transfer
-        for src_idx in source_indices_final:
-            if remaining_to_remove <= 0:
-                break
-            acct = conv_profile_final.accounts[src_idx]
-            remove = min(remaining_to_remove, acct.balance)
-            acct.balance -= remove
-            remaining_to_remove -= remove
-
-        # Add to Roth account (first one found)
-        roth_acct = conv_profile_final.accounts[roth_idx_final]
-        roth_acct.balance += actual_transfer
-
-    # ── Step 5: Run conversion projection & adjust tax yearly ─────────────
-    _, conversion_annual = run_projection(conv_profile_final)
-
-    # Inject the incremental tax into the correct years.  This is the ONLY
-    # place the conversion tax cost is reflected — the balance change above
-    # (IRA -> Roth) affects future RMDs/withdrawal taxes naturally via the
-    # projection engine's own tax estimation.
+    # Inject incremental tax back into the DataFrame for accurate display in UI/tests
     for detail in conversion_details:
-        year = detail["year"]
+        yr = detail["year"]
         incr_tax = detail["incremental_tax"]
-        mask = conversion_annual["year"] == year
+        mask = conversion_annual["year"] == yr
         if mask.any():
             conversion_annual.loc[mask, "tax_annual_est"] += incr_tax
-            # Also reduce net worth in that year by the tax amount
-            conversion_annual.loc[mask, "net_worth_eoy"] -= incr_tax
-            # Reduce investment balance (tax is paid from investments)
-            conversion_annual.loc[mask, "balance_investment_total"] -= incr_tax
-            # Reduce total assets similarly
-            if "total_assets_eoy" in conversion_annual.columns:
-                conversion_annual.loc[mask, "total_assets_eoy"] -= incr_tax
 
-    # ── Step 6: Compute comparison metrics ───────────────────────────────
-    # Align DataFrames by year
-    baseline_years = baseline_annual["year"].values
-    conversion_years = conversion_annual["year"].values
-
+    # ── Step 4: Compute comparison metrics ───────────────────────────────
     # Net worth at plan end
-    baseline_nw_end = float(baseline_annual["net_worth_eoy"].iloc[-1])
+    baseline_nw_end  = float(baseline_annual["net_worth_eoy"].iloc[-1])
     conversion_nw_end = float(conversion_annual["net_worth_eoy"].iloc[-1])
-    net_worth_delta = conversion_nw_end - baseline_nw_end
+    net_worth_delta  = conversion_nw_end - baseline_nw_end
 
-    # Breakeven year: first year conversion NW >= baseline NW
+    # Breakeven year: first year conversion NW >= baseline NW (after conversion window)
     breakeven_year = None
     for i in range(len(baseline_annual)):
         b_nw = float(baseline_annual["net_worth_eoy"].iloc[i])
         c_nw = float(conversion_annual["net_worth_eoy"].iloc[i])
-        year = int(baseline_annual["year"].iloc[i])
-        if c_nw >= b_nw and year > end_year:
-            breakeven_year = year
+        yr   = int(baseline_annual["year"].iloc[i])
+        if c_nw >= b_nw and yr > end_year:
+            breakeven_year = yr
             break
 
     # Lifetime tax comparison
-    baseline_total_tax = float(baseline_annual["tax_annual_est"].sum())
+    baseline_total_tax  = float(baseline_annual["tax_annual_est"].sum())
     conversion_total_tax = float(conversion_annual["tax_annual_est"].sum())
     lifetime_tax_savings = baseline_total_tax - conversion_total_tax + total_tax_cost
 
     # RMD reduction
-    baseline_rmd = 0.0
+    baseline_rmd   = 0.0
     conversion_rmd = 0.0
     if "withdrawal_rmd" in baseline_annual.columns:
         baseline_rmd = float(baseline_annual["withdrawal_rmd"].sum())

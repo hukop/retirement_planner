@@ -67,6 +67,13 @@ from engine.social_security import compute_ss_benefit, SSBenefit
 from engine.investments import AccountState, build_portfolio, grow_all, contribute_all
 from engine.real_estate import PropertyState, build_property_portfolio, step_all_month
 from engine.withdrawal import execute_annual_withdrawals, AnnualWithdrawalPlan, _accounts_in_order
+from engine.roth_helpers import (
+    estimate_annual_ordinary_income,
+    estimate_annual_rental_income,
+    estimate_annual_ss_income,
+    compute_incremental_tax,
+    compute_marginal_rates_for_conversion,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +148,8 @@ class ProjectionEngine:
         precomputed_re_equity: Optional[np.ndarray] = None,
         precomputed_rental_net: Optional[np.ndarray] = None,
         precomputed_income_totals: Optional[np.ndarray] = None,
+        conversion_schedule: Optional[dict[int, float]] = None,
+        conversion_source_types: Optional[list[str]] = None,
     ):
         """
         Parameters
@@ -159,6 +168,13 @@ class ProjectionEngine:
         det_annual_nw   : optional dict mapping year -> EOY net worth of baseline
                           deterministic projection, used for adaptive spending safeguard.
         adaptive_spending: if True, enables Net Worth Safeguarded adaptive spending in-loop.
+        conversion_schedule : optional dict mapping {calendar_year: annual_amount_to_convert}.
+                          When provided, the engine executes an IRA->Roth transfer in January
+                          of each scheduled year, at the live account balances of that moment
+                          (i.e. after all prior years of compounding).  The incremental tax is
+                          deducted from the first available brokerage account.
+        conversion_source_types : account types eligible as conversion sources.
+                          Defaults to ["trad_ira"].
         """
         self.profile              = profile
         self.start_year           = date.today().year
@@ -166,6 +182,10 @@ class ProjectionEngine:
         self.expense_multipliers  = expense_multipliers
         self.det_annual_nw        = det_annual_nw
         self.adaptive_spending    = adaptive_spending
+        self.conversion_schedule  = conversion_schedule or {}
+        self.conversion_source_types = conversion_source_types or ["trad_ira"]
+        # Populated during run() — one dict per conversion event
+        self.conversion_events: list[dict] = []
 
         # Injected precomputed arrays
         self.precomputed_salary_self   = precomputed_salary_self
@@ -374,6 +394,16 @@ class ProjectionEngine:
                     for s in invest_portfolio
                 }
 
+                # ── Roth conversion hook ─────────────────────────────────
+                # Apply any scheduled conversion in January of the target year,
+                # after accounts have grown through the prior December.
+                if year in self.conversion_schedule:
+                    self._apply_conversion(
+                        invest_portfolio=invest_portfolio,
+                        year=year,
+                        amount=self.conversion_schedule[year],
+                    )
+
             # ── 1. & 2. Monthly income & expenses ────────────────────────
             if fast_path:
                 income_total = precomputed_income_totals[m]
@@ -567,6 +597,38 @@ class ProjectionEngine:
                 yr_state.expense_total   += exp["expense_total"]
                 yr_state.tax_paid        += monthly_tax_est
 
+            # ── 8.5. End of Year Tax True-Up ──────────────────────────────
+            if month == 12:
+                actual_tax_res = calculate_taxes(
+                    ordinary_income=yr_state.income_ordinary + yr_state.rmd_total + yr_state.income_rental,
+                    long_term_gains=yr_state.cap_gains,
+                    ss_income=yr_state.income_ss,
+                    filing_status=self.profile.filing_status,
+                )
+                shortfall = actual_tax_res.total_tax - yr_state.tax_paid
+                
+                if shortfall > 0:
+                    remaining_shortfall = shortfall
+                    w_ord = w_gains = w_total = 0.0
+                    for state in ordered_portfolio:
+                        if remaining_shortfall <= 0:
+                            break
+                        wr = state.withdraw(remaining_shortfall)
+                        w_ord += wr.ordinary_income
+                        w_gains += wr.capital_gain
+                        w_total += wr.withdrawn
+                        remaining_shortfall -= wr.withdrawn
+                    
+                    paid_trueup = shortfall - remaining_shortfall
+                    yr_state.tax_paid += paid_trueup
+                    yr_state.cap_gains += w_gains
+                    yr_state.withdrawals_total += w_total
+                    if not fast_path:
+                        monthly_tax_est += paid_trueup
+                        wd_row["withdrawal_gains"] += w_gains
+                        wd_row["withdrawal_ordinary"] += w_ord
+                        wd_row["withdrawal_total"] += w_total
+
             # ── 9. Compute net worth ──────────────────────────────────────
             invest_total = 0.0
             for s in invest_portfolio:
@@ -740,6 +802,109 @@ class ProjectionEngine:
         row["expense_one_time"] = round(one_time, 2)
         row["expense_total"]    = round(grand_total, 2)
         return row
+
+    # ------------------------------------------------------------------ #
+    # Roth conversion hook                                                #
+    # ------------------------------------------------------------------ #
+    def _apply_conversion(
+        self,
+        invest_portfolio: list,
+        year: int,
+        amount: float,
+    ) -> None:
+        """
+        Execute a Roth conversion in-place on *invest_portfolio*.
+
+        Steps
+        -----
+        1.  Withdraw up to *amount* from source accounts (trad_ira by default),
+            in order, capped at available balance.
+        2.  Deposit the transferred amount into the first Roth IRA account
+            (creates a synthetic Roth state if none exists).
+        3.  Compute the incremental tax on the conversion and deduct it from
+            the first brokerage account (or skip if no brokerage).
+        4.  Append a record to ``self.conversion_events`` for reporting.
+        """
+        from engine.investments import AccountState
+
+        # ── 1. Collect source and destination states ──────────────────────
+        source_states = [
+            s for s in invest_portfolio
+            if s.account.account_type in self.conversion_source_types
+        ]
+        roth_states = [
+            s for s in invest_portfolio
+            if s.account.account_type == "roth_ira"
+        ]
+        brokerage_states = [
+            s for s in invest_portfolio
+            if s.account.account_type == "brokerage"
+        ]
+
+        if not source_states:
+            return  # nothing to convert
+
+        # ── 2. Transfer from source → Roth ────────────────────────────────
+        remaining = amount
+        year_converted = 0.0
+
+        for src in source_states:
+            if remaining <= 0:
+                break
+            take = min(remaining, src.balance)
+            src.balance -= take
+            year_converted += take
+            remaining -= take
+
+        if year_converted <= 0:
+            return  # source was exhausted already
+
+        if roth_states:
+            roth_states[0].balance += year_converted
+        # If no Roth account exists in the portfolio we still record the
+        # conversion — the balance just isn't tracked (edge-case; the caller
+        # should ensure a Roth account exists when scheduling conversions).
+
+        # ── 3. Deduct incremental tax from brokerage ───────────────────────
+        p = self.profile
+        base_ordinary = estimate_annual_ordinary_income(p, year, self.start_year)
+        base_ordinary += estimate_annual_rental_income(p, year, self.start_year)
+        base_ss       = estimate_annual_ss_income(p, year, self.start_year)
+
+        incr_tax = compute_incremental_tax(
+            base_ordinary=base_ordinary,
+            conversion_amount=year_converted,
+            long_term_gains=0.0,
+            ss_income=base_ss,
+            filing_status=p.filing_status,
+        )
+
+        tax_paid = 0.0
+        if brokerage_states and incr_tax > 0:
+            brok = brokerage_states[0]
+            tax_paid = min(incr_tax, brok.balance)
+            brok.balance -= tax_paid
+
+        # ── 4. Compute marginal rates for reporting ────────────────────────
+        rates = compute_marginal_rates_for_conversion(
+            base_ordinary=base_ordinary,
+            conversion_amount=year_converted,
+            filing_status=p.filing_status,
+        )
+
+        self.conversion_events.append({
+            "year": year,
+            "conversion_amount": round(year_converted, 2),
+            "incremental_tax": round(incr_tax, 2),
+            "tax_paid_from_brokerage": round(tax_paid, 2),
+            "marginal_rate_federal": round(rates["federal_marginal"] * 100, 1),
+            "marginal_rate_ca": round(rates["ca_marginal"] * 100, 1),
+            "marginal_rate_combined": round(rates["combined_marginal"] * 100, 1),
+            "roth_balance_after": round(roth_states[0].balance if roth_states else 0.0, 2),
+            "source_balance_after": round(
+                sum(s.balance for s in source_states), 2
+            ),
+        })
 
     # ------------------------------------------------------------------ #
     # Tax estimation                                                      #

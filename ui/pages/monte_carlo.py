@@ -34,6 +34,7 @@ from ui.components import (
 # ---------------------------------------------------------------------------
 # Color palette
 # ---------------------------------------------------------------------------
+# noqa: E501
 _C = {
     "p50":   "#4a7af7",      # Blue — median line
     "p25_75":"rgba(74,122,247,0.25)",   # Inner band (25th–75th)
@@ -263,13 +264,17 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
             hovertemplate="%{text}<extra></extra>",
         ))
 
-    # Ruin boundary (dashed line at exactly 0)
+    # Ruin boundary (dashed line at exactly 0) — annotation above the plot
     fig.add_vline(
         x=0,
         line=dict(color="rgba(248,113,113,0.8)", width=2, dash="dash"),
-        annotation_text="Ruin → $0",
-        annotation_position="top left",
-        annotation_font=dict(color="#f87171", size=11),
+    )
+    fig.add_annotation(
+        x=0, y=1, xref="x", yref="paper",
+        text="Ruin → $0",
+        showarrow=False,
+        xanchor="left", yanchor="bottom",
+        font=dict(color="#f87171", size=11),
     )
 
     # Median annotation
@@ -284,9 +289,13 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
     fig.add_vline(
         x=p50_x,
         line=dict(color=_C["p50"], width=1.5, dash="dot"),
-        annotation_text=p50_text,
-        annotation_position="top right",
-        annotation_font=dict(color=_C["p50"], size=11),
+    )
+    fig.add_annotation(
+        x=p50_x, y=1, xref="x", yref="paper",
+        text=p50_text,
+        showarrow=False,
+        xanchor="right", yanchor="bottom",
+        font=dict(color=_C["p50"], size=11),
     )
 
     # Cap x-axis at the last (merged) bin's right edge
@@ -300,7 +309,7 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
     ticktext = []
     for val in nice_ticks:
         sqrt_val = np.sqrt(val)
-        if sqrt_val <= x_max_sqrt * 1.1:
+        if sqrt_val <= x_max_sqrt + bin_w * 0.5:
             tickvals.append(sqrt_val)
             ticktext.append("$0" if val == 0 else _fmt_currency(val))
 
@@ -308,20 +317,26 @@ def _terminal_histogram(result: MonteCarloResult) -> go.Figure:
     layout.update({
         "showlegend": True,
         "barmode": "overlay",
-        "height": 320,
+        "height": 340,
+        "margin": {"t": 56, "r": 4},
         "legend": {
             **PLOTLY_DARK_TEMPLATE["layout"]["legend"],
-            "orientation": "v",
-            "x": 1, "y": 1,
-            "xanchor": "right", "yanchor": "top",
+            "orientation": "h",
+            "x": 1, "y": 1.16,
+            "xanchor": "right", "yanchor": "bottom",
         },
         "yaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["yaxis"],
-                  "tickprefix": "", "tickformat": ".1f", "ticksuffix": "%", "title": "% of Trials"},
+                  "tickprefix": "", "tickformat": ".1f", "ticksuffix": "%", "title": "% of Trials",
+                  "automargin": True, "range": [0, None]},
         "xaxis": {**PLOTLY_DARK_TEMPLATE["layout"]["xaxis"],
                   "title": "Terminal Net Worth (Square Root Scale)",
                   "tickvals": tickvals,
                   "ticktext": ticktext,
-                  "range": [-1.5 * bin_w, x_max_sqrt + 1.5 * bin_w]},
+                  "range": [-bin_w * 0.5, x_max_sqrt + bin_w * 0.8],
+                  "showticklabels": True,
+                  "tickmode": "array",
+                  "tickprefix": "",
+                  "ticksuffix": ""},
     })
     fig.update_layout(**layout)
     return fig
@@ -353,7 +368,7 @@ def _ruin_year_chart(result: MonteCarloResult) -> go.Figure:
     # Calculate histogram manually for maximum stability across Plotly versions
     num_bins = max(10, min(50, len(set(ruin_yrs))))
     counts, bin_edges = np.histogram(ruin_yrs, bins=num_bins)
-    
+
     # Convert to percentages of total trials
     pcts = (counts / max(1, result.num_trials)) * 100.0
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
@@ -504,7 +519,10 @@ def _results_section(result: MonteCarloResult, retire_yr: int) -> html.Div:
             section_card(
                 "Terminal Net Worth Distribution",
                 subtitle="Final portfolio values across all trials.",
-                children=[dcc.Graph(figure=hist_fig, config={"displayModeBar": False})],
+                children=[html.Div(
+                    dcc.Graph(figure=hist_fig, config={"displayModeBar": False}),
+                    style={"marginTop": "-40px"},
+                )],
             ),
             section_card(
                 "Ruin Year Analysis",

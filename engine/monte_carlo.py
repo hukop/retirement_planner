@@ -727,6 +727,7 @@ def _run_fast_trial(
             prior_eff_rate = eff_rate_eoy
             year_cap_gains = 0.0
             year_rmd = 0.0
+            year_tax_paid = 0.0
             prior_balance_by_name = {
                 name: float(balances[idx])
                 for idx, name in enumerate(context.account_names)
