@@ -238,7 +238,24 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
         title="🎯  One-Time Expenses",
         children=[
             html.Div(otex_list, id="onetime-expenses-container"),
-            add_button("Add One-Time Expense", btn_id="btn-add-otex")
+            html.Div(
+                [
+                    html.Button(
+                        "+ Add One-Time Expense",
+                        id="btn-add-otex",
+                        className="btn-ghost",
+                        n_clicks=0,
+                    ),
+                    html.Button(
+                        "📅  Sort by Year",
+                        id="btn-sort-otex-year",
+                        className="btn-ghost",
+                        n_clicks=0,
+                    ),
+                ],
+                className="add-item-btn-row",
+                style={"display": "flex", "gap": "8px", "flexWrap": "wrap"},
+            )
         ]
     )
 

@@ -1,11 +1,11 @@
 """
 Projections page.
 
-The main analytics dashboard with 4 detailed interactive charts:
+The main analytics dashboard with detailed interactive charts:
 1. Detailed Net Worth Over Time (stacked area by account)
 2. Income vs Expenses (bar + line)
 3. Portfolio Drawdown (line)
-4. Retirement Income Sources (stacked bar)
+4. Annual Inflows by Source (stacked bar)
 """
 
 from __future__ import annotations
@@ -207,17 +207,15 @@ def _drawdown_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
-# Chart 4: Retirement Income Source Distribution
+# Chart 4: Annual Inflows by Source
 # ---------------------------------------------------------------------------
 def _income_sources_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
-    # Filter to retirement years only (simplifies view)
-    ret_df = annual_df[annual_df["year"] >= retire_yr]
-    years = ret_df["year"]
+    years = annual_df["year"]
 
     fig = go.Figure()
 
     # 1. Social Security
-    ss_total = ret_df["income_ss_self"] + ret_df["income_ss_spouse"]
+    ss_total = annual_df["income_ss_self"] + annual_df["income_ss_spouse"]
     fig.add_trace(go.Bar(
         x=years, y=ss_total, name="Social Security",
         marker_color=_COLORS["ss"],
@@ -225,27 +223,29 @@ def _income_sources_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
 
     # 2. Portfolio Withdrawals
     fig.add_trace(go.Bar(
-        x=years, y=ret_df["withdrawal_total"], name="Account Withdrawals",
+        x=years, y=annual_df["withdrawal_total"], name="Account Withdrawals",
         marker_color=_COLORS["withdrawals"],
     ))
 
     # 3. Rental Net Income
-    if "income_rental_net" in ret_df:
+    if "income_rental_net" in annual_df:
         fig.add_trace(go.Bar(
-            x=years, y=ret_df["income_rental_net"], name="Net Rental CF",
+            x=years, y=annual_df["income_rental_net"], name="Net Rental CF",
             marker_color=_COLORS["rental"],
         ))
 
     # 4. Any continuing salary
-    salary = ret_df["income_salary_self"] + ret_df["income_salary_spouse"]
+    salary = annual_df["income_salary_self"] + annual_df["income_salary_spouse"]
     fig.add_trace(go.Bar(
         x=years, y=salary, name="Working Income",
         marker_color=_COLORS["salary"],
     ))
 
+    shapes, annotations = retirement_vline(retire_yr)
     layout = dict(PLOTLY_DARK_TEMPLATE["layout"])
     layout.update({
         "barmode": "stack",
+        "shapes": shapes, "annotations": annotations,
         "legend": {**PLOTLY_DARK_TEMPLATE["layout"]["legend"], "orientation": "h", "y": -0.15, "x": 0},
     })
     fig.update_layout(**layout)
@@ -300,7 +300,7 @@ def layout(profile_data: Optional[dict] = None, projection_data: Optional[list] 
             section_card("Annual Cash Flow & Tax Withholding", children=[dcc.Graph(figure=cash_fig, config={"displayModeBar": False})]),
 
             # Row 2 of Charts
-            section_card("Retirement Inflows (Stacked)", children=[dcc.Graph(figure=inflow_fig, config={"displayModeBar": False})]),
+            section_card("Annual Inflows by Source", children=[dcc.Graph(figure=inflow_fig, config={"displayModeBar": False})]),
 
         ]
     )

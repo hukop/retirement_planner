@@ -331,6 +331,63 @@ def register_forms_callbacks(app: dash.Dash):
         profile_data["one_time_expenses"] = one_times
         return profile_data
 
+    @app.callback(
+        Output("profile-store", "data", allow_duplicate=True),
+        Output("onetime-expenses-container", "children", allow_duplicate=True),
+        Output("toast-container", "children", allow_duplicate=True),
+        Input("btn-sort-otex-year", "n_clicks"),
+        State({"type": "otex-name",      "index": ALL}, "value"),
+        State({"type": "otex-amount",    "index": ALL}, "value"),
+        State({"type": "otex-year",      "index": ALL}, "value"),
+        State({"type": "otex-inflation", "index": ALL}, "value"),
+        State({"type": "otex-item",      "index": ALL}, "style"),
+        State("profile-store", "data"),
+        prevent_initial_call=True,
+    )
+    def sort_one_time_expenses_by_year(
+        n_clicks, otex_names, otex_amts, otex_years, otex_infs, otex_styles, profile_data
+    ):
+        if not n_clicks or not profile_data:
+            raise dash.exceptions.PreventUpdate
+
+        if otex_names:
+            _, one_times = _build_expenses(
+                [], [], [], [], [], [],
+                otex_names or [], otex_amts or [], otex_years or [], otex_infs or [], otex_styles or [],
+            )
+        else:
+            one_times = profile_data.get("one_time_expenses") or []
+
+        if not one_times:
+            return dash.no_update, dash.no_update, _toast(
+                "No one-time expenses to sort.",
+                header="Sort",
+                icon="info",
+            )
+
+        def sort_year(exp):
+            if not isinstance(exp, dict):
+                return 2030
+            try:
+                return int(exp.get("year") or 2030)
+            except (TypeError, ValueError):
+                return 2030
+
+        sorted_one_times = sorted(one_times, key=sort_year)
+        profile_data = {**profile_data, "one_time_expenses": sorted_one_times}
+
+        from ui.pages.expenses import _one_time_expense_item
+        children = [
+            _one_time_expense_item(idx, otex)
+            for idx, otex in enumerate(sorted_one_times)
+        ]
+
+        return profile_data, children, _toast(
+            "One-time expenses sorted by target year.",
+            header="Sorted",
+            icon="success",
+        )
+
     # ═══════════════════════════════════════════════════════════════════════
     # 4. INVESTMENTS PAGE — auto-save on every input change
     # ═══════════════════════════════════════════════════════════════════════

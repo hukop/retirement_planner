@@ -157,15 +157,25 @@ def _topbar() -> html.Div:
                         className="btn-ghost",
                         n_clicks=0,
                     ),
+                    html.Button(
+                        "💾✏️  Save Plan as ...",
+                        id="btn-save-plan-as",
+                        className="btn-ghost",
+                        n_clicks=0,
+                        style={"marginLeft": "8px"},
+                    ),
                     dcc.Upload(
                         id="upload-plan",
                         children=html.Button(
                             "📂  Load Plan",
+                            id="btn-load-plan",
                             className="btn-ghost",
+                            n_clicks=0,
                             style={"marginLeft": "8px"},
                         ),
                         multiple=False,
                         accept=".json",
+                        disable_click=True,
                     ),
                     html.Button(
                         "▶  Run Projections",
@@ -205,6 +215,7 @@ def create_layout() -> html.Div:
             dcc.Store(id="projection-store",   data=None,            storage_type="session"),
             dcc.Store(id="monte-carlo-store",  data=None,            storage_type="session"),
             dcc.Store(id="roth-conversion-store", data=None,         storage_type="session"),
+            dcc.Store(id="plan-file-store",       data=None,         storage_type="session"),
             dcc.Store(id="density-store",                            storage_type="local"),
             dcc.Store(id="theme-store",                              storage_type="local"),
 
