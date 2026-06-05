@@ -308,7 +308,7 @@ class ProjectionEngine:
                 for exp_item in p.expenses:
                     base = exp_item.monthly_amount
                     if both_retired_det:
-                        base = base * (exp_item.retirement_pct / 100)
+                        base = base * exp_item.retirement_factor
                     if exp_item.inflation_adjusted:
                         base = base * infl_det
                     cat_totals[exp_item.category] = cat_totals.get(exp_item.category, 0.0) + base
@@ -425,7 +425,7 @@ class ProjectionEngine:
                     "income_total": sal_self + sal_spouse + ss_self_mo + ss_spouse_mo + rental_net
                 }
                 income_total = inc["income_total"]
-                
+
                 exp = precomputed_expenses[m].copy()
                 base_expense_total = exp["expense_total"]
 
@@ -514,7 +514,7 @@ class ProjectionEngine:
 
             # ── 7. Withdrawals (retirement months) ───────────────────────
             monthly_need = max(0.0, expense_total - income_total + monthly_tax_est)
-            
+
             if not fast_path:
                 wd_row: dict = {
                     "withdrawal_ordinary": 0.0,
@@ -559,7 +559,7 @@ class ProjectionEngine:
                         w_gains    += wr.capital_gain
                         w_total    += wr.withdrawn
                         remaining  -= wr.withdrawn
-                    
+
                     if fast_path:
                         wd_gains = w_gains
                         wd_rmd = 0.0
@@ -606,7 +606,7 @@ class ProjectionEngine:
                     filing_status=self.profile.filing_status,
                 )
                 shortfall = actual_tax_res.total_tax - yr_state.tax_paid
-                
+
                 if shortfall > 0:
                     remaining_shortfall = shortfall
                     w_ord = w_gains = w_total = 0.0
@@ -618,7 +618,7 @@ class ProjectionEngine:
                         w_gains += wr.capital_gain
                         w_total += wr.withdrawn
                         remaining_shortfall -= wr.withdrawn
-                    
+
                     paid_trueup = shortfall - remaining_shortfall
                     yr_state.tax_paid += paid_trueup
                     yr_state.cap_gains += w_gains
@@ -633,7 +633,7 @@ class ProjectionEngine:
             invest_total = 0.0
             for s in invest_portfolio:
                 invest_total += s.balance
-                
+
             re_equity    = precomputed_re_equity[m]
             net_worth    = invest_total + re_equity
 
@@ -643,7 +643,7 @@ class ProjectionEngine:
                     eoy_net_worths.append(net_worth)
                     if net_worth <= 0 and ruin_year is None:
                         ruin_year = year
-            
+
             if fast_path:
                 continue
             row: dict = {
@@ -780,7 +780,7 @@ class ProjectionEngine:
         for exp in p.expenses:
             base = exp.monthly_amount
             if both_retired:
-                base = base * (exp.retirement_pct / 100)
+                base = base * exp.retirement_factor
             if exp.inflation_adjusted:
                 base = base * infl
             cat_totals[exp.category] = cat_totals.get(exp.category, 0.0) + base

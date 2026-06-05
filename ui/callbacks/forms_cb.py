@@ -92,7 +92,7 @@ def _build_incomes(names, owners, amounts, raises, starts, ends, styles) -> list
     return incomes
 
 
-def _build_expenses(rec_names, rec_cats, rec_amts, rec_pcts, rec_infs, rec_styles,
+def _build_expenses(rec_names, rec_cats, rec_amts, rec_factors, rec_infs, rec_styles,
                     otex_names, otex_amts, otex_years, otex_infs, otex_styles):
     """Build expenses + one_time_expenses lists from form inputs."""
     expenses = []
@@ -102,11 +102,16 @@ def _build_expenses(rec_names, rec_cats, rec_amts, rec_pcts, rec_infs, rec_style
         name = ((rec_names[i] if i < len(rec_names) else "") or "").strip()
         if not name:
             name = (rec_cats[i] if i < len(rec_cats) else "other") or "other"
+
+        # Handle new retirement scaling: factor (1.0 = no scaling, 0.5 = half, 2.0 = double)
+        # The UI disables the factor input when checkbox is unchecked, so it defaults to 1.0
+        factor = float((rec_factors[i] if i < len(rec_factors) else 1.0) or 1.0)
+
         expenses.append({
             "name": name,
             "category": rec_cats[i] if i < len(rec_cats) else "other",
             "monthly_amount": (rec_amts[i] if i < len(rec_amts) else 0) or 0.0,
-            "retirement_pct": float((rec_pcts[i] if i < len(rec_pcts) else 100) or 100.0),
+            "retirement_factor": factor,
             "inflation_adjusted": bool((rec_infs[i] if i < len(rec_infs) else True)),
         })
 
@@ -288,22 +293,22 @@ def register_forms_callbacks(app: dash.Dash):
 
     @app.callback(
         Output("profile-store", "data", allow_duplicate=True),
-        Input({"type": "expense-name",       "index": ALL}, "value"),
-        Input({"type": "expense-category",   "index": ALL}, "value"),
-        Input({"type": "expense-amount",     "index": ALL}, "value"),
-        Input({"type": "expense-retire-pct", "index": ALL}, "value"),
-        Input({"type": "expense-inflation",  "index": ALL}, "value"),
-        Input({"type": "otex-name",          "index": ALL}, "value"),
-        Input({"type": "otex-amount",        "index": ALL}, "value"),
-        Input({"type": "otex-year",          "index": ALL}, "value"),
-        Input({"type": "otex-inflation",     "index": ALL}, "value"),
+        Input({"type": "expense-name",          "index": ALL}, "value"),
+        Input({"type": "expense-category",      "index": ALL}, "value"),
+        Input({"type": "expense-amount",        "index": ALL}, "value"),
+        Input({"type": "expense-retire-factor", "index": ALL}, "value"),
+        Input({"type": "expense-inflation",     "index": ALL}, "value"),
+        Input({"type": "otex-name",             "index": ALL}, "value"),
+        Input({"type": "otex-amount",           "index": ALL}, "value"),
+        Input({"type": "otex-year",             "index": ALL}, "value"),
+        Input({"type": "otex-inflation",        "index": ALL}, "value"),
         State({"type": "expense-item", "index": ALL}, "style"),
         State({"type": "otex-item",    "index": ALL}, "style"),
         State("profile-store", "data"),
         prevent_initial_call=True,
     )
     def auto_sync_expenses(
-        rec_names, rec_cats, rec_amts, rec_pcts, rec_infs,
+        rec_names, rec_cats, rec_amts, rec_factors, rec_infs,
         otex_names, otex_amts, otex_years, otex_infs,
         rec_styles, otex_styles, profile_data,
     ):
@@ -319,7 +324,7 @@ def register_forms_callbacks(app: dash.Dash):
             raise dash.exceptions.PreventUpdate
 
         expenses, one_times = _build_expenses(
-            rec_names or [], rec_cats_list, rec_amts or [], rec_pcts or [], rec_infs or [], rec_styles or [],
+            rec_names or [], rec_cats_list, rec_amts or [], rec_factors or [], rec_infs or [], rec_styles or [],
             otex_names_list, otex_amts or [], otex_years or [], otex_infs or [], otex_styles or [],
         )
         profile_data["expenses"] = expenses

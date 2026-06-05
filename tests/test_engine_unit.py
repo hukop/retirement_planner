@@ -478,19 +478,19 @@ class TestPropertyState(unittest.TestCase):
                         mortgage_balance=200_000, years_remaining=30,
                         rental_inflation_rate_pct=3.0)
         state = PropertyState.from_property(prop)
-        
+
         # Initial state
         self.assertEqual(state.current_monthly_rent, 2_000)
         self.assertEqual(state.current_monthly_expenses, 500)
         self.assertEqual(state.net_monthly_rental_income, 500)
-        
+
         # Step one month
         state.step_month()
-        
+
         infl = (1 + 0.03)**(1/12)
         expected_rent = 2_000 * infl
         expected_expenses = 500 * infl
-        
+
         self.assertAlmostEqual(state.current_monthly_rent, expected_rent, places=5)
         self.assertAlmostEqual(state.current_monthly_expenses, expected_expenses, places=5)
         self.assertAlmostEqual(state.net_monthly_rental_income, expected_rent - expected_expenses - 1_000, places=5)
@@ -783,7 +783,7 @@ class TestProjectionEngineScenarios(unittest.TestCase):
             spouse=Person(current_age=50, retirement_age=55, life_expectancy=80),
             expenses=[
                 Expense(name="Housing", monthly_amount=2_000, category="housing",
-                        retirement_pct=80, inflation_adjusted=False),
+                        retirement_factor=0.8, inflation_adjusted=False),
             ],
         )
         monthly, _ = run_projection(p)

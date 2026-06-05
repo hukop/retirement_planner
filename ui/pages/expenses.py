@@ -74,16 +74,19 @@ def _expense_item(idx: int, exp: dict) -> html.Div:
                 ],
                 className="g-3"
             ),
-            slider_row(
-                label="Retirement Scaling",
-                slider_id={"type": "expense-retire-pct", "index": idx},
-                min_val=0, max_val=200,
-                value=exp.get("retirement_pct", 100),
-                step=5,
-                marks={v: f"{v}%" for v in [0, 50, 100, 150, 200]},
-                tooltip="How much of this expense remains in retirement? E.g. set to 0% if mortgage will be paid off.",
-                suffix="%"
-            ),
+            dbc.Row([
+                dbc.Col([
+                    input_row(
+                        label="Retirement Scale Factor",
+                        input_id={"type": "expense-retire-factor", "index": idx},
+                        value=exp.get("retirement_factor", 1.0),
+                        min_val=0,
+                        max_val=10,
+                        step=0.1,
+                        placeholder="1.0 = same, 0.5 = half, 2 = double",
+                    ),
+                ], xs=12, md=6),
+            ], className="g-3"),
             dcc.Checklist(
                 options=[{"label": " Adjust for Inflation", "value": "inflation_adjusted"}],
                 value=["inflation_adjusted"] if exp.get("inflation_adjusted", True) else [],
@@ -255,7 +258,12 @@ def layout(profile_data: Optional[dict] = None) -> html.Div:
     current_annual = sum((float(e.monthly_amount or 0)) * 12 for e in profile.expenses)
 
     # Estimate retirement annual cost (roughly, un-inflated)
-    retire_annual = sum((float(e.monthly_amount or 0)) * 12 * (float(e.retirement_pct or 100) / 100) for e in profile.expenses)
+    # Use retirement_factor (1.0 = same, 0.5 = half, 2.0 = double)
+    retire_annual = 0
+    for e in profile.expenses:
+        monthly = float(e.monthly_amount or 0)
+        factor = float(getattr(e, 'retirement_factor', 1.0) or 1.0)
+        retire_annual += monthly * 12 * factor
 
     strip = summary_row([
         ("Current Annual Spend", f"${current_annual:,.0f}/yr", "amber"),

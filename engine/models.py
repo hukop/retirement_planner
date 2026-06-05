@@ -184,7 +184,7 @@ class Expense:
     name: str = ""
     monthly_amount: float = 0.0
     category: str = "other"
-    retirement_pct: float = 100.0     # % of this expense that continues in retirement
+    retirement_factor: float = 1.0    # factor: 0.5 = half, 1.0 = same, 2.0 = double
     inflation_adjusted: bool = True
 
 
@@ -451,9 +451,9 @@ class PlanProfile:
                 IncomeSource(name="Spouse Salary", annual_amount=120_000, annual_raise_pct=2.5, owner="spouse"),
             ],
             expenses=[
-                Expense(name="Housing", monthly_amount=3_000, category="housing", retirement_pct=80),
-                Expense(name="Healthcare", monthly_amount=500, category="healthcare", retirement_pct=150),
-                Expense(name="Other Expenses", monthly_amount=3_583, category="other", retirement_pct=100),
+                Expense(name="Housing", monthly_amount=3_000, category="housing", retirement_factor=0.8),
+                Expense(name="Healthcare", monthly_amount=500, category="healthcare", retirement_factor=1.5),
+                Expense(name="Other Expenses", monthly_amount=3_583, category="other", retirement_factor=1.0),
             ],
             one_time_expenses=[
                 OneTimeExpense(name="Kitchen Remodel", amount=50_000, year=2028, inflation_adjusted=True),
