@@ -4,15 +4,10 @@ Monte Carlo callbacks.
 Uses Dash's background callback (background=True) so the simulation runs in
 a background thread while the UI stays responsive and shows a live progress bar.
 
-Live chart updates are powered by diskcache: the background worker writes
-intermediate MonteCarloResult snapshots every N trials, and a dcc.Interval-
-driven callback polls the cache and re-renders the results section.
-
-Progress is reported by passing set_progress() to run_monte_carlo() every 25
-trials, which updates:
-  - mc-progress-bar    → Bootstrap Progress value (0-100)
-  - mc-progress-pct    → "42%" text label
-  - mc-progress-label  → "Trial 420 of 1,000"
+All UI state (progress bar, button disabled, progress visibility) is managed
+through the set_progress function rather than Dash's `running` parameter.
+This prevents stale cached state from persisting when the page components are
+recreated during navigation.
 """
 
 from __future__ import annotations
@@ -32,6 +27,22 @@ _cache = diskcache.Cache(_CACHE_DIR)
 _INTERMEDIATE_KEY = "mc_intermediate_result"
 _INTERMEDIATE_READY_KEY = "mc_intermediate_ready"
 
+# Shared UI state constants
+_RUNNING_STYLE = {"display": "block", "marginTop": "16px"}
+_HIDDEN_STYLE = {"display": "none"}
+_RUN_BTN_DISABLED_STYLE = {"width": "200px", "fontSize": "14px", "fontWeight": "700", "opacity": "0.5"}
+_RUN_BTN_ENABLED_STYLE = {"width": "200px", "fontSize": "14px", "fontWeight": "700", "opacity": "1.0"}
+
+
+def _reset_progress(set_progress):
+    """Push initial "running" UI state."""
+    set_progress((0, "0%", "Starting…", _RUNNING_STYLE, True, _RUN_BTN_DISABLED_STYLE, False))
+
+
+def _idle_progress(set_progress):
+    """Push final "idle" UI state."""
+    set_progress((0, "0%", "", _HIDDEN_STYLE, False, _RUN_BTN_ENABLED_STYLE, True))
+
 
 # ── Run Simulation (background callback with live progress) ───────────
 @dash.callback(
@@ -50,19 +61,10 @@ _INTERMEDIATE_READY_KEY = "mc_intermediate_ready"
         Output("mc-progress-bar",       "value"),   # 0-100
         Output("mc-progress-pct",       "children"),# "42%"
         Output("mc-progress-label",     "children"),# "Trial 420 of 1,000"
-    ],
-    running=[
-        # Show/hide progress bar container
-        (Output("mc-progress-container", "style"),
-            {"display": "block", "marginTop": "16px"},
-            {"display": "none"}),
-        # Disable the run button while running
-        (Output("btn-run-monte-carlo", "disabled"), True, False),
-        (Output("btn-run-monte-carlo", "style"),
-            {"width": "200px", "fontSize": "14px", "fontWeight": "700", "opacity": "0.5"},
-            {"width": "200px", "fontSize": "14px", "fontWeight": "700", "opacity": "1.0"}),
-        # Enable/disable the live-update polling interval
-        (Output("mc-live-interval", "disabled"), False, True),
+        Output("mc-progress-container", "style"),   # visibility
+        Output("btn-run-monte-carlo", "disabled"),  # button disabled
+        Output("btn-run-monte-carlo", "style"),     # button style
+        Output("mc-live-interval", "disabled"),     # live interval
     ],
     background=True,
     prevent_initial_call=True,
@@ -79,7 +81,7 @@ def run_simulation(
         raise dash.exceptions.PreventUpdate
 
     # ── Initial progress reset ────────────────────────────────────────
-    set_progress((0, "0%", "Starting…"))
+    _reset_progress(set_progress)
 
     # Clear any stale intermediate data
     _cache.delete(_INTERMEDIATE_KEY)
@@ -103,7 +105,7 @@ def run_simulation(
             pct_int  = int(current / total * 100)
             pct_str  = f"{pct_int}%"
             label    = f"Trial {current:,} of {total:,}"
-            set_progress((pct_int, pct_str, label))
+            set_progress((pct_int, pct_str, label, _RUNNING_STYLE, True, _RUN_BTN_DISABLED_STYLE, False))
 
         # ── Intermediate results bridge ───────────────────────────────
         retire_yr = profile.retirement_year_self
@@ -132,6 +134,9 @@ def run_simulation(
         _cache.delete(_INTERMEDIATE_KEY)
         _cache.set(_INTERMEDIATE_READY_KEY, False)
 
+        # Push final "idle" UI state
+        _idle_progress(set_progress)
+
         pct_str = f"{result.success_rate * 100:.1f}%"
         toast   = dbc.Toast(
             f"Completed {n_total:,} trials — Probability of Success: {pct_str}",
@@ -147,6 +152,10 @@ def run_simulation(
         traceback.print_exc()
         _cache.delete(_INTERMEDIATE_KEY)
         _cache.set(_INTERMEDIATE_READY_KEY, False)
+
+        # Push final "idle" UI state on error too
+        _idle_progress(set_progress)
+
         err_toast = dbc.Toast(
             f"Simulation failed: {str(e)}",
             header="Monte Carlo Error ❌",
@@ -158,6 +167,7 @@ def run_simulation(
 
 
 def register_monte_carlo_callbacks(app: dash.Dash) -> None:
+
     # Keep the MC tab's controls in the same profile store used by the rest of
     # the app, so navigating away and back preserves the choices.
     @app.callback(
@@ -213,11 +223,11 @@ def register_monte_carlo_callbacks(app: dash.Dash) -> None:
 
         profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
         retire_yr = profile.retirement_year_self
-        
+
         # Clean data for reconstruction
         data.pop("_retire_yr", None)
         result = MonteCarloResult(**data)
-        
+
         return _results_section(result, retire_yr)
 
     # ── 3. Render final results ──────────────────────────────────────────
@@ -238,6 +248,6 @@ def register_monte_carlo_callbacks(app: dash.Dash) -> None:
 
         profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
         retire_yr = profile.retirement_year_self
-        
+
         result = MonteCarloResult(**final_data)
         return _results_section(result, retire_yr)
