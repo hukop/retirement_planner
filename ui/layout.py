@@ -9,7 +9,11 @@ Structure
   ├── dcc.Store('projection-store')  — annual_df as list-of-records
   ├── #sidebar
   │   ├── logo
-  │   └── navigation links
+  │   ├── Dashboard link
+  │   ├── Collapsible "My Plan" section
+  │   │   ├── Profile, Income, Expenses, Investments, Real Estate
+  │   └── Collapsible "Insights" section
+  │       ├── Projections, Monte Carlo, Roth Conversion
   └── #main-content
       ├── #topbar  (title + save/load buttons)
       └── #page-content  (routed page output)
@@ -24,30 +28,34 @@ Add new pages by extending ``_ROUTES``.
 from __future__ import annotations
 
 import dash
-from dash import html, dcc, Input, Output, State
+from dash import html, dcc, Input, Output, State, clientside_callback
 import dash_bootstrap_components as dbc
 
 from engine.models import PlanProfile
 
 
 # ---------------------------------------------------------------------------
-# Navigation items
+# Navigation structure
 # ---------------------------------------------------------------------------
-_NAV_ITEMS = [
-    ("/",             "📊", "Dashboard"),
+_DASHBOARD = ("/", "📊", "Dashboard")
+
+_MY_PLAN = [
     ("/profile",      "👤", "Profile"),
     ("/income",       "💼", "Income"),
     ("/expenses",     "🛒", "Expenses"),
     ("/investments",  "📈", "Investments"),
     ("/real-estate",  "🏠", "Real Estate"),
-    ("/projections",  "🔮", "Projections"),
-    ("/monte-carlo",  "🎲", "Monte Carlo"),
-    ("/roth-conversion", "🔄", "Roth Conversion"),
+]
+
+_INSIGHTS = [
+    ("/projections",      "🔮", "Projections"),
+    ("/monte-carlo",      "🎲", "Monte Carlo"),
+    ("/roth-conversion",  "🔄", "Roth Conversion"),
 ]
 
 
-def _nav_link(href: str, icon: str, label: str) -> html.A:
-    return html.A(
+def _nav_link(href: str, icon: str, label: str) -> dcc.Link:
+    return dcc.Link(
         [
             html.Span(icon, className="nav-icon"),
             html.Span(label),
@@ -90,10 +98,65 @@ def _sidebar() -> html.Div:
             # Navigation
             html.Div(
                 [
-                    html.Div("PLAN", className="nav-section-label"),
-                    *[_nav_link(href, icon, label) for href, icon, label in _NAV_ITEMS],
+                    # Dashboard (always visible at top)
+                    _nav_link(_DASHBOARD[0], _DASHBOARD[1], _DASHBOARD[2]),
 
-                    html.Div("SETTINGS", className="nav-section-label", style={"marginTop": "20px"}),
+                    html.Div(className="sidebar-divider"),
+
+                    # My Plan (collapsible via dbc.Collapse)
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Span("▸", className="collapse-arrow", id="sidebar-my-plan-arrow"),
+                                    html.Span("My Plan", className="nav-section-label-inline"),
+                                ],
+                                className="nav-section-toggle",
+                                id="sidebar-toggle-my-plan",
+                                n_clicks=0,
+                            ),
+                            dbc.Collapse(
+                                html.Div(
+                                    [_nav_link(href, icon, label) for href, icon, label in _MY_PLAN],
+                                    className="nav-section-items",
+                                ),
+                                id="sidebar-collapse-my-plan",
+                                is_open=True,
+                            ),
+                        ],
+                        className="nav-collapsible-section",
+                    ),
+
+                    html.Div(className="sidebar-divider"),
+
+                    # Insights (collapsible via dbc.Collapse)
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Span("▸", className="collapse-arrow", id="sidebar-insights-arrow"),
+                                    html.Span("Insights", className="nav-section-label-inline"),
+                                ],
+                                className="nav-section-toggle",
+                                id="sidebar-toggle-insights",
+                                n_clicks=0,
+                            ),
+                            dbc.Collapse(
+                                html.Div(
+                                    [_nav_link(href, icon, label) for href, icon, label in _INSIGHTS],
+                                    className="nav-section-items",
+                                ),
+                                id="sidebar-collapse-insights",
+                                is_open=False,
+                            ),
+                        ],
+                        className="nav-collapsible-section",
+                    ),
+
+                    html.Div(className="sidebar-divider"),
+
+                    # Settings at bottom
+                    html.Div("SETTINGS", className="nav-section-label", style={"marginTop": "8px"}),
                     html.Div(
                         dbc.Select(
                             id="layout-density-select",
@@ -219,6 +282,11 @@ def create_layout() -> html.Div:
             dcc.Store(id="density-store",                            storage_type="local"),
             dcc.Store(id="theme-store",                              storage_type="local"),
 
+            # Sidebar collapse stores — placed here (outside sidebar) so they
+            # persist across sidebar re-renders triggered by nav-link callbacks.
+            dcc.Store(id="sidebar-my-plan-open",    data=True,  storage_type="session"),
+            dcc.Store(id="sidebar-insights-open",   data=False, storage_type="session"),
+
             # Toast notification area
             html.Div(id="toast-container", style={
                 "position": "fixed", "top": "70px", "right": "20px", "zIndex": "9999",
@@ -231,7 +299,13 @@ def create_layout() -> html.Div:
                     html.Div(
                         [
                             _topbar(),
-                            html.Div(id="page-content", style={"padding": "28px"}),
+                            dcc.Loading(
+                                html.Div(id="page-content", style={"padding": "28px"}),
+                                id="page-loading",
+                                type="dot",
+                                color="#4a7af7",
+                                fullscreen=False,
+                            ),
                         ],
                         id="main-content",
                     ),
@@ -270,14 +344,16 @@ _PAGE_TITLES: dict[str, str] = {
     "roth-conversion": "🔄  Roth Conversion",
 }
 
+_ALL_NAV_LINKS = [_DASHBOARD] + _MY_PLAN + _INSIGHTS
+
 
 def register_routing_callback(app: dash.Dash) -> None:
     """
     Register the URL → page-content routing callback on ``app``.
-
-    Call this after ``app.layout = create_layout()``.
+    Also registers sidebar toggle and active-link callbacks.
     """
 
+    # ── Page routing ──────────────────────────────────────────────────
     def _placeholder_page(key: str):
         return html.Div(
             [
@@ -347,17 +423,64 @@ def register_routing_callback(app: dash.Dash) -> None:
             )
             return err_msg, "⚠️ Error"
 
-    # ── Nav active-link highlighting ────────────────────────────────────
-    for href, _, label in _NAV_ITEMS:
-        nav_id = f"nav-{label.lower().replace(' ', '-')}"
+    # ── All sidebar interactivity (client-side, zero server round-trips) ──
+    # Combining nav highlighting, collapse toggle, and collapse sync into
+    # a single clientside callback that runs entirely in the browser.
+    # This ensures the sidebar DOM is NEVER recreated by the server,
+    # preserving dbc.Collapse is_open state across page navigations.
+    app.clientside_callback(
+        """
+        function(pathname, myPlanClicks, insightsClicks, myPlanOpen, insightsOpen) {
+            var trigger = dash_clientside.callback_context.triggered;
+            var triggerId = trigger && trigger.length > 0 ? trigger[0].prop_id : "";
 
-        @app.callback(
-            Output(nav_id, "className"),
-            Input("url", "pathname"),
-            prevent_initial_call=False,
-        )
-        def _set_active(pathname, _href=href):
-            active = (pathname or "/") == _href or (
-                _href == "/" and pathname in ("/", "/dashboard", None)
-            )
-            return "nav-item-link active" if active else "nav-item-link"
+            // Nav highlighting
+            var navItems = [
+                "/", "/profile", "/income", "/expenses",
+                "/investments", "/real-estate",
+                "/projections", "/monte-carlo", "/roth-conversion"
+            ];
+            var output = navItems.map(function(href) {
+                var active = (pathname || "/") === href ||
+                    (href === "/" && (pathname === "/dashboard" || pathname === "/" || pathname === null));
+                return active ? "nav-item-link active" : "nav-item-link";
+            });
+
+            // Collapse toggle
+            var newMyPlanOpen = myPlanOpen;
+            var newInsightsOpen = insightsOpen;
+            if (triggerId === "sidebar-toggle-my-plan.n_clicks") {
+                newMyPlanOpen = !myPlanOpen;
+            }
+            if (triggerId === "sidebar-toggle-insights.n_clicks") {
+                newInsightsOpen = !insightsOpen;
+            }
+
+            return output.concat([
+                newMyPlanOpen,      // sidebar-my-plan-open data
+                newInsightsOpen,     // sidebar-insights-open data
+                newMyPlanOpen ? "collapse-arrow open" : "collapse-arrow",
+                newInsightsOpen ? "collapse-arrow open" : "collapse-arrow",
+                newMyPlanOpen,      // sidebar-collapse-my-plan is_open
+                newInsightsOpen,     // sidebar-collapse-insights is_open
+            ]);
+        }
+        """,
+        # ── Outputs (all Outputs first) ──
+        (
+            [Output(f"nav-{label.lower().replace(' ', '-')}", "className") for _, _, label in _ALL_NAV_LINKS]
+            + [Output("sidebar-my-plan-open", "data"),
+               Output("sidebar-insights-open", "data"),
+               Output("sidebar-my-plan-arrow", "className"),
+               Output("sidebar-insights-arrow", "className"),
+               Output("sidebar-collapse-my-plan", "is_open"),
+               Output("sidebar-collapse-insights", "is_open")]
+        ),
+        # ── Inputs ──
+        [Input("url", "pathname"),
+         Input("sidebar-toggle-my-plan", "n_clicks"),
+         Input("sidebar-toggle-insights", "n_clicks")],
+        # ── States ──
+        [State("sidebar-my-plan-open", "data"),
+         State("sidebar-insights-open", "data")],
+    )

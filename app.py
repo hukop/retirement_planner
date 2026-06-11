@@ -33,7 +33,6 @@ app = Dash(
                                         # reference component IDs that don't exist at startup
                                         # (dynamic lists render IDs only after data loads).
     title="Finance Planner",
-    update_title="Calculating...",
     background_callback_manager=background_callback_manager,
 )
 

@@ -184,6 +184,67 @@ body {
 /* =========================================================================
    4. Navigation Items
    ========================================================================= */
+
+/* ── Collapsible sections ── */
+.nav-collapsible-section {
+  margin: 0;
+  border: none;
+}
+
+.nav-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  user-select: none;
+  background: none;
+  border: 1px solid transparent;
+  width: 100%;
+  text-align: left;
+}
+
+.nav-section-toggle:hover {
+  color: var(--text-secondary);
+  background: rgba(74, 122, 247, 0.06);
+  border-color: var(--border-card);
+}
+
+.nav-section-toggle .collapse-arrow {
+  font-size: 10px;
+  transition: transform var(--transition-fast);
+  display: inline-block;
+}
+
+.nav-section-toggle .collapse-arrow.open {
+  transform: rotate(90deg);
+}
+
+.nav-section-label-inline {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.nav-section-items {
+  padding-left: 4px;
+}
+
+.sidebar-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 12px;
+}
+
 .nav-item-link {
   display: flex;
   align-items: center;

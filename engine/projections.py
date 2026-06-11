@@ -106,6 +106,8 @@ class _YearState:
     withdrawals_total:float = 0.0
     expense_total:    float = 0.0
     tax_paid:         float = 0.0
+    # Cumulative monthly net need (sum of monthly_need across the year)
+    annual_net_need:  float = 0.0
     # Prior-year effective rate (bootstrap from profile for year 1)
     prior_eff_rate:   float = 0.0
     # Computed at year-end for next year's estimate
@@ -186,6 +188,10 @@ class ProjectionEngine:
         self.conversion_source_types = conversion_source_types or ["trad_ira"]
         # Populated during run() — one dict per conversion event
         self.conversion_events: list[dict] = []
+
+        # Tax shortfall carried over from working years — unpaid tax delta
+        # from prior year-end true-up, spread across next year's monthly estimates.
+        self._tax_shortfall_carryover: float = 0.0
 
         # Injected precomputed arrays
         self.precomputed_salary_self   = precomputed_salary_self
@@ -527,9 +533,15 @@ class ProjectionEngine:
             else:
                 wd_gains = wd_rmd = wd_total = 0.0
 
+            # Accumulate cumulative net need for December's annual withdrawal
+            if both_retired:
+                yr_state.annual_net_need += monthly_need
+
             if both_retired and monthly_need > 0:
                 if month == 12:
-                    annual_need = monthly_need * 12
+                    # Withdraw only the remaining annual need not already
+                    # taken via monthly withdrawals in months 1-11.
+                    annual_need = max(0.0, yr_state.annual_net_need - yr_state.withdrawals_total)
                     owner_ages  = {"self": self_age_int, "spouse": spouse_age_int}
                     wd_plan = execute_annual_withdrawals(
                         invest_portfolio, annual_need, owner_ages,
@@ -608,26 +620,36 @@ class ProjectionEngine:
                 shortfall = actual_tax_res.total_tax - yr_state.tax_paid
 
                 if shortfall > 0:
-                    remaining_shortfall = shortfall
-                    w_ord = w_gains = w_total = 0.0
-                    for state in ordered_portfolio:
-                        if remaining_shortfall <= 0:
-                            break
-                        wr = state.withdraw(remaining_shortfall)
-                        w_ord += wr.ordinary_income
-                        w_gains += wr.capital_gain
-                        w_total += wr.withdrawn
-                        remaining_shortfall -= wr.withdrawn
+                    if both_retired:
+                        # Retirement: withdraw the tax shortfall from accounts.
+                        remaining_shortfall = shortfall
+                        w_ord = w_gains = w_total = 0.0
+                        for state in ordered_portfolio:
+                            if remaining_shortfall <= 0:
+                                break
+                            wr = state.withdraw(remaining_shortfall)
+                            w_ord += wr.ordinary_income
+                            w_gains += wr.capital_gain
+                            w_total += wr.withdrawn
+                            remaining_shortfall -= wr.withdrawn
 
-                    paid_trueup = shortfall - remaining_shortfall
-                    yr_state.tax_paid += paid_trueup
-                    yr_state.cap_gains += w_gains
-                    yr_state.withdrawals_total += w_total
-                    if not fast_path:
-                        monthly_tax_est += paid_trueup
-                        wd_row["withdrawal_gains"] += w_gains
-                        wd_row["withdrawal_ordinary"] += w_ord
-                        wd_row["withdrawal_total"] += w_total
+                        paid_trueup = shortfall - remaining_shortfall
+                        yr_state.tax_paid += paid_trueup
+                        yr_state.cap_gains += w_gains
+                        yr_state.withdrawals_total += w_total
+                        self._tax_shortfall_carryover = 0.0
+                        if not fast_path:
+                            monthly_tax_est += paid_trueup
+                            wd_row["withdrawal_gains"] += w_gains
+                            wd_row["withdrawal_ordinary"] += w_ord
+                            wd_row["withdrawal_total"] += w_total
+                    else:
+                        # Working years: carry the shortfall to next year's
+                        # monthly tax estimates (deducted from income, not accounts).
+                        self._tax_shortfall_carryover = shortfall
+                        yr_state.tax_paid += shortfall
+                        if not fast_path:
+                            monthly_tax_est += shortfall
 
             # ── 9. Compute net worth ──────────────────────────────────────
             invest_total = 0.0
@@ -933,11 +955,17 @@ class ProjectionEngine:
         """
         Estimate the tax for this month using the prior year's effective rate.
         Returns a monthly dollar amount.
+
+        Includes any tax shortfall carried over from the previous year's
+        working-year true-up, spread evenly across 12 months.
         """
         eff_rate = yr_state.prior_eff_rate
-        if eff_rate <= 0 or annual_income_est <= 0:
-            return 0.0
-        return (annual_income_est * eff_rate) / 12
+        base = 0.0
+        if eff_rate > 0 and annual_income_est > 0:
+            base = (annual_income_est * eff_rate) / 12
+        # Add prior-year tax shortfall carryover (working years only)
+        carryover_monthly = self._tax_shortfall_carryover / 12
+        return base + carryover_monthly
 
     def _compute_annual_eff_rate(self, yr_state: _YearState) -> float:
         """
