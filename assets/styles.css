@@ -504,7 +504,41 @@ input:focus {
   padding: 6px 10px !important;
 }
 
-/* Select / Dropdown */
+/* Select / Dropdown — native <select> and react-select */
+select.form-control,
+select.form-select,
+select {
+  background-color: var(--bg-input) !important;
+  border: 1px solid var(--border-input) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-main) !important;
+  font-size: 13.5px !important;
+  padding: 8px 36px 8px 12px !important;
+  border-radius: var(--radius-sm) !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M2.5 4.5L6 8l3.5-3.5'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 12px 12px !important;
+  cursor: pointer !important;
+}
+
+select.form-control:hover,
+select.form-select:hover,
+select:hover {
+  border-color: var(--border-card) !important;
+}
+
+select.form-control:focus,
+select.form-select:focus,
+select:focus {
+  border-color: var(--border-focus) !important;
+  box-shadow: 0 0 0 3px rgba(74, 122, 247, 0.12) !important;
+  outline: none !important;
+}
+
 .Select-control,
 .Select-menu-outer,
 .Select--single > .Select-control,
@@ -1071,6 +1105,28 @@ input[type="number"] {
 }
 
 /* Dropdown fixes for Notion */
+#app-shell.theme-notion select,
+#app-shell.theme-notion select.form-control,
+#app-shell.theme-notion select.form-select {
+  background-color: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  border-radius: 0 !important;
+  color: #111827 !important;
+  padding: 8px 36px 8px 0 !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M2.5 4.5L6 8l3.5-3.5'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 8px center !important;
+  background-size: 12px 12px !important;
+}
+
+#app-shell.theme-notion select:focus {
+  border-bottom-color: #3b82f6 !important;
+}
+
 #app-shell.theme-notion .Select-control {
   background: transparent !important;
   border: none !important;
@@ -1187,4 +1243,27 @@ input[type="number"] {
   margin-top: -4px;
   margin-bottom: 12px;
   color: #858585;
+}
+
+/* Dropdown fixes for Spreadsheet */
+#app-shell.theme-spreadsheet select,
+#app-shell.theme-spreadsheet select.form-control,
+#app-shell.theme-spreadsheet select.form-select {
+  background-color: #1e1e1e !important;
+  border: 1px solid #3c3c3c !important;
+  border-radius: 0 !important;
+  color: #ce9178 !important;
+  font-family: var(--font-mono) !important;
+  padding: 8px 36px 8px 12px !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23858585' d='M2.5 4.5L6 8l3.5-3.5'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 12px 12px !important;
+}
+
+#app-shell.theme-spreadsheet select:focus {
+  border: 1px solid #007fd4 !important;
 }
