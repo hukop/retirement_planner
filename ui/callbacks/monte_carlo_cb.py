@@ -12,8 +12,9 @@ recreated during navigation.
 
 from __future__ import annotations
 
+import json
 import dash
-from dash import Input, Output, State
+from dash import Input, Output, State, clientside_callback
 import dash_bootstrap_components as dbc
 import diskcache
 
@@ -22,7 +23,17 @@ from engine.monte_carlo import run_monte_carlo, monte_carlo_result_to_dict, Mont
 
 # Shared cache for intermediate results (same cache dir as background manager)
 import os
-_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".cache")
+import platform
+
+def _get_base_cache_dir():
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    base = os.path.join(_PROJECT_ROOT, ".cache")
+    if os.name == "posix" and "microsoft" in platform.uname().release.lower() and base.startswith("/mnt/"):
+        return os.path.join("/tmp", "finance_planner_cache")
+    return base
+
+_CACHE_DIR = os.environ.get("FINANCE_CACHE_DIR", os.path.join(_get_base_cache_dir(), "mc_intermediate"))
+os.makedirs(_CACHE_DIR, exist_ok=True)
 _cache = diskcache.Cache(_CACHE_DIR)
 _INTERMEDIATE_KEY = "mc_intermediate_result"
 _INTERMEDIATE_READY_KEY = "mc_intermediate_ready"
@@ -198,14 +209,14 @@ def register_monte_carlo_callbacks(app: dash.Dash) -> None:
         return profile_data
 
 
-    # ── 2. Render live updates ───────────────────────────────────────────
+    # ── 2. Live update: rebuild only the fan chart figure (no full page refresh) ──
     @app.callback(
-        Output("mc-results-area", "children", allow_duplicate=True),
+        Output("mc-fan-chart", "figure", allow_duplicate=True),
         Input("mc-live-interval", "n_intervals"),
         State("profile-store", "data"),
         prevent_initial_call=True,
     )
-    def render_live_updates(n_intervals, profile_data):
+    def live_update_fan_chart(n_intervals, profile_data):
         ready = _cache.get(_INTERMEDIATE_READY_KEY, False)
         if not ready:
             raise dash.exceptions.PreventUpdate
@@ -214,23 +225,40 @@ def register_monte_carlo_callbacks(app: dash.Dash) -> None:
         if not data:
             raise dash.exceptions.PreventUpdate
 
-        # Consume snapshot
+        # Consume snapshot so next tick waits for fresh data
         _cache.set(_INTERMEDIATE_READY_KEY, False)
 
-        from engine.models import PlanProfile
         from engine.monte_carlo import MonteCarloResult
-        from ui.pages.monte_carlo import _results_section
+        import dash
 
-        profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
-        retire_yr = profile.retirement_year_self
-
-        # Clean data for reconstruction
         data.pop("_retire_yr", None)
         result = MonteCarloResult(**data)
 
-        return _results_section(result, retire_yr)
+        pcts = result.net_worth_percentiles
+        p5   = [row[0] for row in pcts]
+        p10  = [row[1] for row in pcts]
+        p50  = [row[3] for row in pcts]
 
-    # ── 3. Render final results ──────────────────────────────────────────
+        patched_fig = dash.Patch()
+        
+        # Trace 0: 5th-10th %ile
+        patched_fig["data"][0]["y"] = p10 + p5[::-1]
+        
+        # Trace 1: 10th-50th %ile
+        patched_fig["data"][1]["y"] = p50 + p10[::-1]
+        
+        # Trace 2: 10th %ile line
+        patched_fig["data"][2]["y"] = p10
+        
+        # Trace 3: 5th %ile line
+        patched_fig["data"][3]["y"] = p5
+        
+        # Trace 4: Median line
+        patched_fig["data"][4]["y"] = p50
+
+        return patched_fig
+
+    # ── 3. Render final results (full build with all charts) ─────────────
     @app.callback(
         Output("mc-results-area", "children", allow_duplicate=True),
         Input("monte-carlo-store", "data"),

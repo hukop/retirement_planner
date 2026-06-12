@@ -179,46 +179,63 @@ def test_re_003_rental_income_saved_and_reloaded(dash_duo):
 # Profile — low retirement age (< 50)
 # ---------------------------------------------------------------------------
 
+from datetime import date as _reg_date
+
+def _scroll_and_send(dash_duo, element, text):
+    """Scroll element into view then send keys."""
+    dash_duo.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+    time.sleep(0.3)
+    element.send_keys(Keys.CONTROL + "a")
+    element.send_keys(Keys.BACKSPACE)
+    element.send_keys(text)
+    element.send_keys(Keys.TAB)
+
 def test_profile_001_low_retirement_age_persists(dash_duo):
     """Regression: retirement age of 45 should be accepted and survive refresh."""
+    _cur = _reg_date.today().year
     _wait_and_click(dash_duo, "#nav-profile")
 
-    ret_input = dash_duo.find_element("#profile-self-retirement-age")
-    ret_input.send_keys(Keys.CONTROL + "a")
-    ret_input.send_keys(Keys.BACKSPACE)
-    ret_input.send_keys("45")
-    # Blur the input to trigger debounced callback
-    ret_input.send_keys(Keys.TAB)
+    # Set birth year so retirement at age 45 means retirement year = birth_year + 45
+    # Age 50 -> birth_year = current_year - 50, retirement_year = birth_year + 45 = current_year - 5
+    birth_in = dash_duo.find_element("#profile-self-birth-year")
+    _scroll_and_send(dash_duo, birth_in, str(_cur - 50))
     time.sleep(0.5)
 
-    _wait_and_click(dash_duo, "#profile-save-btn")
-    dash_duo.wait_for_text_to_equal(".toast-header strong", "Saved", timeout=10)
+    ret_in = dash_duo.find_element("#profile-self-retirement-year")
+    _scroll_and_send(dash_duo, ret_in, str(_cur - 50 + 45))
+    time.sleep(0.5)
 
-    # Refresh
+    # Auto-save triggers on input changes; wait for store to update
+    time.sleep(1.5)
+
+    # Refresh & verify persistence
     dash_duo.driver.refresh()
     WebDriverWait(dash_duo.driver, 10).until(
-        lambda d: d.find_element(By.ID, "profile-self-retirement-age").get_attribute("value") == "45"
+        lambda d: d.find_element(By.ID, "profile-self-retirement-year").get_attribute("value") == str(_cur - 50 + 45)
     )
 
 
 def test_profile_002_spouse_low_retirement_age_persists(dash_duo):
     """Regression: spouse retirement age of 45 should also persist."""
+    _cur = _reg_date.today().year
     _wait_and_click(dash_duo, "#nav-profile")
 
-    ret_input = dash_duo.find_element("#profile-spouse-retirement-age")
-    ret_input.send_keys(Keys.CONTROL + "a")
-    ret_input.send_keys(Keys.BACKSPACE)
-    ret_input.send_keys("45")
-    # Blur the input to trigger debounced callback
-    ret_input.send_keys(Keys.TAB)
+    # Set birth year so retirement at age 45 means retirement year = birth_year + 45
+    # Age 50 -> birth_year = current_year - 50
+    birth_in = dash_duo.find_element("#profile-spouse-birth-year")
+    _scroll_and_send(dash_duo, birth_in, str(_cur - 50))
     time.sleep(0.5)
 
-    _wait_and_click(dash_duo, "#profile-save-btn")
-    dash_duo.wait_for_text_to_equal(".toast-header strong", "Saved", timeout=10)
+    ret_in = dash_duo.find_element("#profile-spouse-retirement-year")
+    _scroll_and_send(dash_duo, ret_in, str(_cur - 50 + 45))
+    time.sleep(0.5)
+
+    # Auto-save triggers on input changes; wait for store to update
+    time.sleep(1.5)
 
     dash_duo.driver.refresh()
     WebDriverWait(dash_duo.driver, 10).until(
-        lambda d: d.find_element(By.ID, "profile-spouse-retirement-age").get_attribute("value") == "45"
+        lambda d: d.find_element(By.ID, "profile-spouse-retirement-year").get_attribute("value") == str(_cur - 50 + 45)
     )
 
 

@@ -116,8 +116,8 @@ def register_runner_callbacks(app: dash.Dash):
             profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
 
             # Basic validation check to ensure run_projection has what it needs
-            if not profile.self_person or profile.self_person.current_age is None:
-                 raise ValueError("Incomplete Profile: Self current age is required.")
+            if not profile.self_person or profile.self_person.birth_year is None:
+                 raise ValueError("Incomplete Profile: Self birth year is required.")
 
             _, annual_df = run_projection(profile)
 

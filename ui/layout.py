@@ -172,17 +172,16 @@ def _sidebar() -> html.Div:
                         style={"padding": "0 12px", "marginBottom": "12px"}
                     ),
                     html.Div(
-                        dbc.Select(
-                            id="layout-theme-select",
-                            options=[
-                                {"label": "Classic Dashboard", "value": "classic"},
-                                {"label": "Notion (Minimalist)", "value": "notion"},
-                                {"label": "Spreadsheet (Dense)", "value": "spreadsheet"},
-                            ],
-                            value="classic",
-                            size="sm",
-                            style={"backgroundColor": "var(--bg-input)", "color": "var(--text-secondary)", "borderColor": "var(--border-input)", "fontSize": "12px", "padding": "4px 8px"}
-                        ),
+                    dbc.Select(
+                        id="layout-theme-select",
+                        options=[
+                            {"label": "Classic Dashboard", "value": "classic"},
+                            {"label": "Notion (Minimalist)", "value": "notion"},
+                        ],
+                        value="classic",
+                        size="sm",
+                        style={"backgroundColor": "var(--bg-input)", "color": "var(--text-secondary)", "borderColor": "var(--border-input)", "fontSize": "12px", "padding": "4px 8px"}
+                    ),
                         style={"padding": "0 12px", "marginBottom": "12px"}
                     ),
                 ],
@@ -221,7 +220,7 @@ def _topbar() -> html.Div:
                         n_clicks=0,
                     ),
                     html.Button(
-                        "💾✏️  Save Plan as ...",
+                        "📝  Save Plan as ...",
                         id="btn-save-plan-as",
                         className="btn-ghost",
                         n_clicks=0,
@@ -299,13 +298,7 @@ def create_layout() -> html.Div:
                     html.Div(
                         [
                             _topbar(),
-                            dcc.Loading(
-                                html.Div(id="page-content", style={"padding": "28px"}),
-                                id="page-loading",
-                                type="dot",
-                                color="#4a7af7",
-                                fullscreen=False,
-                            ),
+                            html.Div(id="page-content", style={"padding": "28px"}),
                         ],
                         id="main-content",
                     ),
@@ -423,64 +416,59 @@ def register_routing_callback(app: dash.Dash) -> None:
             )
             return err_msg, "⚠️ Error"
 
-    # ── All sidebar interactivity (client-side, zero server round-trips) ──
-    # Combining nav highlighting, collapse toggle, and collapse sync into
-    # a single clientside callback that runs entirely in the browser.
-    # This ensures the sidebar DOM is NEVER recreated by the server,
-    # preserving dbc.Collapse is_open state across page navigations.
-    app.clientside_callback(
-        """
-        function(pathname, myPlanClicks, insightsClicks, myPlanOpen, insightsOpen) {
-            var trigger = dash_clientside.callback_context.triggered;
-            var triggerId = trigger && trigger.length > 0 ? trigger[0].prop_id : "";
+    # ── Sidebar interactivity (server-side callback for reliability) ──
+    _NAV_HREF_PATHS = ["/", "/profile", "/income", "/expenses",
+                       "/investments", "/real-estate",
+                       "/projections", "/monte-carlo", "/roth-conversion"]
 
-            // Nav highlighting
-            var navItems = [
-                "/", "/profile", "/income", "/expenses",
-                "/investments", "/real-estate",
-                "/projections", "/monte-carlo", "/roth-conversion"
-            ];
-            var output = navItems.map(function(href) {
-                var active = (pathname || "/") === href ||
-                    (href === "/" && (pathname === "/dashboard" || pathname === "/" || pathname === null));
-                return active ? "nav-item-link active" : "nav-item-link";
-            });
-
-            // Collapse toggle
-            var newMyPlanOpen = myPlanOpen;
-            var newInsightsOpen = insightsOpen;
-            if (triggerId === "sidebar-toggle-my-plan.n_clicks") {
-                newMyPlanOpen = !myPlanOpen;
-            }
-            if (triggerId === "sidebar-toggle-insights.n_clicks") {
-                newInsightsOpen = !insightsOpen;
-            }
-
-            return output.concat([
-                newMyPlanOpen,      // sidebar-my-plan-open data
-                newInsightsOpen,     // sidebar-insights-open data
-                newMyPlanOpen ? "collapse-arrow open" : "collapse-arrow",
-                newInsightsOpen ? "collapse-arrow open" : "collapse-arrow",
-                newMyPlanOpen,      // sidebar-collapse-my-plan is_open
-                newInsightsOpen,     // sidebar-collapse-insights is_open
-            ]);
-        }
-        """,
-        # ── Outputs (all Outputs first) ──
-        (
-            [Output(f"nav-{label.lower().replace(' ', '-')}", "className") for _, _, label in _ALL_NAV_LINKS]
-            + [Output("sidebar-my-plan-open", "data"),
-               Output("sidebar-insights-open", "data"),
-               Output("sidebar-my-plan-arrow", "className"),
-               Output("sidebar-insights-arrow", "className"),
-               Output("sidebar-collapse-my-plan", "is_open"),
-               Output("sidebar-collapse-insights", "is_open")]
-        ),
-        # ── Inputs ──
+    @app.callback(
+        [Output(f"nav-{label.lower().replace(' ', '-')}", "className") for _, _, label in _ALL_NAV_LINKS]
+        + [Output("sidebar-my-plan-open", "data"),
+           Output("sidebar-insights-open", "data"),
+           Output("sidebar-my-plan-arrow", "className"),
+           Output("sidebar-insights-arrow", "className"),
+           Output("sidebar-collapse-my-plan", "is_open"),
+           Output("sidebar-collapse-insights", "is_open")],
         [Input("url", "pathname"),
          Input("sidebar-toggle-my-plan", "n_clicks"),
          Input("sidebar-toggle-insights", "n_clicks")],
-        # ── States ──
         [State("sidebar-my-plan-open", "data"),
          State("sidebar-insights-open", "data")],
+        prevent_initial_call=False,
     )
+    def sidebar_callback(pathname, my_plan_clicks, insights_clicks,
+                         my_plan_open, insights_open):
+        """Server-side nav highlighting and collapse toggle."""
+        ctx = dash.ctx
+        triggered_id = ctx.triggered_id if ctx else None
+
+        current_path = pathname or "/"
+
+        # Nav highlighting
+        nav_classes = []
+        for href in _NAV_HREF_PATHS:
+            active = current_path == href or (
+                href == "/" and current_path in ("/dashboard", "/")
+            )
+            nav_classes.append("nav-item-link active" if active else "nav-item-link")
+
+        # Collapse toggle
+        new_my_plan_open = my_plan_open
+        new_insights_open = insights_open
+
+        if triggered_id == "sidebar-toggle-my-plan":
+            new_my_plan_open = not my_plan_open
+        elif triggered_id == "sidebar-toggle-insights":
+            new_insights_open = not insights_open
+
+        my_plan_arrow = "collapse-arrow open" if new_my_plan_open else "collapse-arrow"
+        insights_arrow = "collapse-arrow open" if new_insights_open else "collapse-arrow"
+
+        return nav_classes + [
+            new_my_plan_open,
+            new_insights_open,
+            my_plan_arrow,
+            insights_arrow,
+            new_my_plan_open,
+            new_insights_open,
+        ]

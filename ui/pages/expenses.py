@@ -59,7 +59,7 @@ def _expense_item(idx: int, exp: dict) -> html.Div:
                             options=_CATEGORY_OPTIONS,
                             value=exp.get("category", "other"),
                         ),
-                        xs=12, md=6,
+                        xs=12, md=4,
                     ),
                     dbc.Col(
                         input_row(
@@ -69,24 +69,23 @@ def _expense_item(idx: int, exp: dict) -> html.Div:
                             prefix="$",
                             min_val=0,
                         ),
-                        xs=12, md=6,
+                        xs=12, md=4,
+                    ),
+                    dbc.Col(
+                        input_row(
+                            label="Scale Factor",
+                            input_id={"type": "expense-retire-factor", "index": idx},
+                            value=exp.get("retirement_factor", 1.0),
+                            min_val=0,
+                            max_val=10,
+                            step=0.1,
+                            placeholder="1.0 = same",
+                        ),
+                        xs=12, md=4,
                     ),
                 ],
                 className="g-3"
             ),
-            dbc.Row([
-                dbc.Col([
-                    input_row(
-                        label="Retirement Scale Factor",
-                        input_id={"type": "expense-retire-factor", "index": idx},
-                        value=exp.get("retirement_factor", 1.0),
-                        min_val=0,
-                        max_val=10,
-                        step=0.1,
-                        placeholder="1.0 = same, 0.5 = half, 2 = double",
-                    ),
-                ], xs=12, md=6),
-            ], className="g-3"),
             dcc.Checklist(
                 options=[{"label": " Adjust for Inflation", "value": "inflation_adjusted"}],
                 value=["inflation_adjusted"] if exp.get("inflation_adjusted", True) else [],

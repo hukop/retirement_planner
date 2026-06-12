@@ -15,7 +15,16 @@ from ui.layout import create_layout, register_routing_callback
 # Background callback manager (required for progress-reporting callbacks)
 # ---------------------------------------------------------------------------
 import os
-_CACHE_DIR = os.path.join(os.path.dirname(__file__), ".cache")
+import platform
+
+def _get_base_cache_dir():
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
+    if os.name == "posix" and "microsoft" in platform.uname().release.lower() and base.startswith("/mnt/"):
+        return os.path.join("/tmp", "finance_planner_cache")
+    return base
+
+_CACHE_DIR = os.environ.get("FINANCE_CACHE_DIR", _get_base_cache_dir())
+os.makedirs(_CACHE_DIR, exist_ok=True)
 _cache = diskcache.Cache(_CACHE_DIR)
 background_callback_manager = DiskcacheManager(_cache)
 

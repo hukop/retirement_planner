@@ -103,38 +103,20 @@ class Person:
     def __init__(
         self,
         name: str = "Self",
-        birth_year: Optional[int] = None,
+        birth_year: int = 1975,
         birth_month: int = 1,
-        retirement_year: Optional[int] = None,
+        retirement_year: int = 2040,
         life_expectancy: int = 90,
         ss_monthly_benefit: float = 0.0,
         ss_claiming_age: int = 67,
-        current_age: Optional[int] = None,
-        retirement_age: Optional[int] = None,
     ):
         self.name = name
+        self.birth_year = birth_year
         self.birth_month = birth_month
+        self.retirement_year = retirement_year
         self.life_expectancy = life_expectancy
         self.ss_monthly_benefit = ss_monthly_benefit
         self.ss_claiming_age = ss_claiming_age
-
-        from datetime import date
-        current_year = date.today().year
-
-        if birth_year is not None:
-            self.birth_year = birth_year
-        elif current_age is not None:
-            self.birth_year = current_year - current_age
-        else:
-            self.birth_year = 1975
-
-        if retirement_year is not None:
-            self.retirement_year = retirement_year
-        elif retirement_age is not None:
-            # Reconstruct retirement_year based on birth_year + retirement_age
-            self.retirement_year = self.birth_year + retirement_age
-        else:
-            self.retirement_year = 2040
 
     @property
     def retirement_age(self) -> int:
@@ -395,6 +377,16 @@ class PlanProfile:
         def safe_load(dataclass_type, item_dict):
             if not isinstance(item_dict, dict):
                 return dataclass_type()
+            # Migration: convert old age/retirement fields to new birth_year/retirement_year
+            if dataclass_type is Person:
+                _date = date.today()
+                if "current_age" in item_dict and "birth_year" not in item_dict:
+                    item_dict["birth_year"] = _date.year - item_dict["current_age"]
+                if "retirement_age" in item_dict and "retirement_year" not in item_dict:
+                    if "birth_year" in item_dict:
+                        item_dict["retirement_year"] = item_dict["birth_year"] + item_dict["retirement_age"]
+                    elif "current_age" in item_dict:
+                        item_dict["retirement_year"] = _date.year - item_dict["current_age"] + item_dict["retirement_age"]
             valid_keys = {f.name for f in fields(dataclass_type)}
             filtered = {k: v for k, v in item_dict.items() if k in valid_keys and v is not None}
             return dataclass_type(**filtered)

@@ -123,7 +123,7 @@ def section_card(
     kwargs: dict = {"className": "section-card"}
     if card_id:
         kwargs["id"] = card_id
-        
+
     title_block = html.Div(header_content, className="section-card-title")
     if subtitle:
         title_block = html.Div([
@@ -360,7 +360,7 @@ def dynamic_item(
                             [
                                 html.Span("▼", style={"fontSize": "10px", "color": "var(--text-muted)", "marginRight": "10px"}),
                                 html.Span(
-                                    title, 
+                                    title,
                                     id={"type": f"{item_id['type']}-title-text", "index": item_id['index']} if isinstance(item_id, dict) else None
                                 ),
                             ],
@@ -368,9 +368,9 @@ def dynamic_item(
                             style={"flexGrow": "1", "display": "flex", "alignItems": "center"}
                         ),
                         html.Div(
-                            subtitle, 
+                            subtitle,
                             id={"type": f"{item_id['type']}-subtitle-text", "index": item_id['index']} if isinstance(item_id, dict) else None,
-                            className="dynamic-item-subtitle", 
+                            className="dynamic-item-subtitle",
                             style={"fontSize": "16px", "fontWeight": "600", "color": "var(--text-primary)", "marginLeft": "15px"}
                         ) if subtitle else None,
                     ],
@@ -391,7 +391,7 @@ def dynamic_item(
                         ),
                         style={"display": "flex", "justifyContent": "flex-end", "marginTop": "20px"}
                     )
-                ], 
+                ],
                 style={"paddingTop": "15px"}
             ),
         ],
@@ -573,12 +573,15 @@ def retirement_vline(
     """
     Return a list containing a Plotly vertical-line shape and annotation
     for marking the retirement year on any chart.
+
+    The dashed line stops just below the label annotation at the top
+    (y1=0.92 in paper coordinates) so it doesn't extend past the label.
     """
     return [
         {
             "type": "line",
             "x0": retire_year, "x1": retire_year,
-            "y0": 0, "y1": 1,
+            "y0": 0, "y1": 0.92,
             "xref": "x", "yref": "paper",
             "line": {"color": "rgba(251,191,36,0.5)", "width": 1.5, "dash": "dot"},
         }

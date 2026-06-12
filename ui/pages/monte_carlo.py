@@ -74,9 +74,9 @@ def _success_accent(rate: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# KPI cards from result
+# KPI cards from result (returns a list of metric_card values for four_col)
 # ---------------------------------------------------------------------------
-def _kpi_cards(result: MonteCarloResult) -> dbc.Row:
+def _kpi_card_values(result: MonteCarloResult) -> list:
     nws  = result.terminal_net_worths  # already sorted ascending
     p50  = float(np.percentile(nws, 50))
     p5   = float(np.percentile(nws, 5))
@@ -84,7 +84,7 @@ def _kpi_cards(result: MonteCarloResult) -> dbc.Row:
     rate = result.success_rate
     acc  = _success_accent(rate)
 
-    return four_col(
+    return [
         metric_card(
             title="Probability of Success",
             value=_fmt_pct(rate),
@@ -117,7 +117,7 @@ def _kpi_cards(result: MonteCarloResult) -> dbc.Row:
             accent="green",
             card_id="mc-kpi-best",
         ),
-    )
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +185,7 @@ def _fan_chart(result: MonteCarloResult, retire_yr: int) -> go.Figure:
         "legend": {**PLOTLY_DARK_TEMPLATE["layout"]["legend"],
                    "orientation": "h", "y": -0.08, "x": 0},
         "height": 600,
+        "uirevision": "constant",
     })
     fig.update_layout(**layout)
     fig.update_yaxes(tickprefix="$", tickformat=",.0f")
@@ -488,7 +489,6 @@ def _results_section(result: MonteCarloResult, retire_yr: int) -> html.Div:
     fan_fig   = _fan_chart(result, retire_yr)
     hist_fig  = _terminal_histogram(result)
     ruin_fig  = _ruin_year_chart(result)
-    kpi_cards = _kpi_cards(result)
 
     # Summary strip
     fail_count = sum(1 for ry in result.ruin_years if ry is not None)
@@ -503,36 +503,36 @@ def _results_section(result: MonteCarloResult, retire_yr: int) -> html.Div:
     return html.Div([
         html.Div(style={"height": "24px"}),
 
-        # Fan chart (full width)
+        # Fan chart (full width) — separate container for live updates
         section_card(
             "Net Worth Downside Risk Chart",
-            children=[dcc.Graph(figure=fan_fig, config={"displayModeBar": False})],
+            children=[dcc.Graph(id="mc-fan-chart", figure=fan_fig, config={"displayModeBar": False})],
         ),
         html.Div(style={"height": "16px"}),
 
-        # KPI cards (now below the first chart)
-        kpi_cards,
+        # KPI cards — separate container for live updates
+        html.Div(id="mc-kpi-cards", children=four_col(*_kpi_card_values(result))),
         html.Div(style={"height": "16px"}),
 
-        # Distribution Row: Terminal NW + Ruin Year
+        # Distribution Row: Terminal NW + Ruin Year — these don't update during live runs
         two_col(
             section_card(
                 "Terminal Net Worth Distribution",
                 subtitle="Final portfolio values across all trials.",
                 children=[html.Div(
-                    dcc.Graph(figure=hist_fig, config={"displayModeBar": False}),
+                    dcc.Graph(id="mc-histogram", figure=hist_fig, config={"displayModeBar": False}),
                     style={"marginTop": "-40px"},
                 )],
             ),
             section_card(
                 "Ruin Year Analysis",
                 subtitle="When the portfolio runs out of money (if at all).",
-                children=[dcc.Graph(figure=ruin_fig, config={"displayModeBar": False})],
+                children=[dcc.Graph(id="mc-ruin-chart", figure=ruin_fig, config={"displayModeBar": False})],
             ),
         ),
         html.Div(style={"height": "16px"}),
 
-        strip,
+        html.Div(id="mc-summary-strip", children=strip),
     ])
 
 

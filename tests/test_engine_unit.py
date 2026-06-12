@@ -52,12 +52,17 @@ from engine.withdrawal import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+from datetime import date as _today_date
+
 def _make_profile(**overrides) -> PlanProfile:
     """Build a minimal valid PlanProfile with override kwargs."""
+    _current_yr = _today_date.today().year
     defaults = dict(
-        self_person=Person(name="Self", current_age=50, retirement_age=65,
+        self_person=Person(name="Self", birth_year=_current_yr - 50, birth_month=1,
+                           retirement_year=_current_yr - 50 + 65,
                            life_expectancy=90, ss_monthly_benefit=2000, ss_claiming_age=67),
-        spouse=Person(name="Spouse", current_age=48, retirement_age=65,
+        spouse=Person(name="Spouse", birth_year=_current_yr - 48, birth_month=1,
+                      retirement_year=_current_yr - 48 + 65,
                       life_expectancy=92, ss_monthly_benefit=1500, ss_claiming_age=67),
         plan_name="Test Plan",
         filing_status="married_jointly",
@@ -83,7 +88,9 @@ class TestPerson(unittest.TestCase):
         self.assertEqual(p.retirement_age, 65)
 
     def test_custom_values(self):
-        p = Person(name="Alice", current_age=30, retirement_age=45)
+        _cur = date.today().year
+        p = Person(name="Alice", birth_year=_cur - 30, birth_month=1,
+                   retirement_year=_cur - 30 + 45)
         self.assertEqual(p.retirement_age, 45)
 
 
@@ -188,8 +195,10 @@ class TestPlanProfileSerialization(unittest.TestCase):
     def test_derived_years(self):
         today = date.today().year
         p = _make_profile(
-            self_person=Person(current_age=50, retirement_age=60, life_expectancy=90),
-            spouse=Person(current_age=45, retirement_age=55, life_expectancy=85),
+            self_person=Person(birth_year=today - 50, birth_month=1,
+                               retirement_year=today - 50 + 60, life_expectancy=90),
+            spouse=Person(birth_year=today - 45, birth_month=1,
+                          retirement_year=today - 45 + 55, life_expectancy=85),
         )
         self.assertEqual(p.retirement_year_self, today + 10)
         self.assertEqual(p.retirement_year_spouse, today + 10)
@@ -742,9 +751,11 @@ class TestProjectionEngineScenarios(unittest.TestCase):
         but spouse is still working.
         """
         p = _make_profile(
-            self_person=Person(name="Self", current_age=55, retirement_age=60,
+            self_person=Person(name="Self", birth_year=date.today().year - 55, birth_month=1,
+                               retirement_year=date.today().year - 55 + 60,
                                life_expectancy=90, ss_monthly_benefit=0, ss_claiming_age=67),
-            spouse=Person(name="Spouse", current_age=50, retirement_age=65,
+            spouse=Person(name="Spouse", birth_year=date.today().year - 50, birth_month=1,
+                          retirement_year=date.today().year - 50 + 65,
                           life_expectancy=90, ss_monthly_benefit=0, ss_claiming_age=67),
             incomes=[
                 IncomeSource(name="Self Salary", annual_amount=100_000, owner="self"),
@@ -778,9 +789,12 @@ class TestProjectionEngineScenarios(unittest.TestCase):
         self.assertTrue((other_months["expense_one_time"] == 0).all())
 
     def test_expenses_drop_in_retirement(self):
+        _cur = date.today().year
         p = _make_profile(
-            self_person=Person(current_age=50, retirement_age=55, life_expectancy=80),
-            spouse=Person(current_age=50, retirement_age=55, life_expectancy=80),
+            self_person=Person(birth_year=_cur - 50, birth_month=1,
+                               retirement_year=_cur - 50 + 55, life_expectancy=80),
+            spouse=Person(birth_year=_cur - 50, birth_month=1,
+                          retirement_year=_cur - 50 + 55, life_expectancy=80),
             expenses=[
                 Expense(name="Housing", monthly_amount=2_000, category="housing",
                         retirement_factor=0.8, inflation_adjusted=False),
@@ -798,9 +812,12 @@ class TestProjectionEngineScenarios(unittest.TestCase):
         )
 
     def test_accounts_grow_over_time(self):
+        _cur = date.today().year
         p = _make_profile(
-            self_person=Person(current_age=50, retirement_age=90, life_expectancy=95),
-            spouse=Person(current_age=50, retirement_age=90, life_expectancy=95),
+            self_person=Person(birth_year=_cur - 50, birth_month=1,
+                               retirement_year=_cur - 50 + 90, life_expectancy=95),
+            spouse=Person(birth_year=_cur - 50, birth_month=1,
+                          retirement_year=_cur - 50 + 90, life_expectancy=95),
             accounts=[
                 InvestmentAccount(name="Brokerage", account_type="brokerage",
                                   balance=100_000, annual_return_pct=12.0),
@@ -826,9 +843,12 @@ class TestProjectionEngineScenarios(unittest.TestCase):
         self.assertFalse(monthly["net_worth"].isna().any())
 
     def test_contributions_stop_at_retirement(self):
+        _cur = date.today().year
         p = _make_profile(
-            self_person=Person(current_age=50, retirement_age=55, life_expectancy=80),
-            spouse=Person(current_age=50, retirement_age=55, life_expectancy=80),
+            self_person=Person(birth_year=_cur - 50, birth_month=1,
+                               retirement_year=_cur - 50 + 55, life_expectancy=80),
+            spouse=Person(birth_year=_cur - 50, birth_month=1,
+                          retirement_year=_cur - 50 + 55, life_expectancy=80),
             accounts=[
                 InvestmentAccount(name="401k", account_type="401k", balance=10_000,
                                   annual_contribution=12_000, owner="self"),
@@ -841,8 +861,10 @@ class TestProjectionEngineScenarios(unittest.TestCase):
         self.assertEqual(retired["contrib_total"].sum(), 0)
 
     def test_ss_claiming_age_affects_timing(self):
+        _cur = date.today().year
         p = _make_profile(
-            self_person=Person(current_age=62, retirement_age=65, life_expectancy=85,
+            self_person=Person(birth_year=_cur - 62, birth_month=1,
+                               retirement_year=_cur - 62 + 65, life_expectancy=85,
                                ss_monthly_benefit=2_000, ss_claiming_age=67),
         )
         monthly, _ = run_projection(p)
