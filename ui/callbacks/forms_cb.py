@@ -22,7 +22,7 @@ def _toast(msg: str, header: str = "Saved", icon: str = "success") -> dbc.Toast:
 def _merge_profile_data(profile_data: dict | None, filing: str, inflation: float,
                         slf_n, slf_yr, slf_mo, slf_ret_yr, slf_life, slf_ss_ben, slf_ss_age,
                         sp_n, sp_yr, sp_mo, sp_ret_yr, sp_life, sp_ss_ben, sp_ss_age,
-                        mc_seed, mc_mean, mc_std, mc_bond) -> dict:
+                        mc_seed) -> dict:
     """Merge all profile input values into profile_data dict."""
     if not profile_data:
         profile_data = {}
@@ -62,10 +62,6 @@ def _merge_profile_data(profile_data: dict | None, filing: str, inflation: float
     existing_mc = profile_data.get("monte_carlo", {})
     profile_data["monte_carlo"] = {
         **existing_mc,
-        "mean_return_pct": float(mc_mean or 7.0),
-        "std_dev_pct": float(mc_std or 15.0),
-        "bond_mean_return_pct": float(mc_bond or 4.0),
-        "bond_std_dev_pct": 5.0,  # default
         "random_seed": int(mc_seed) if mc_seed is not None and str(mc_seed).strip() != "" else None,
     }
 
@@ -128,7 +124,7 @@ def _build_expenses(rec_names, rec_cats, rec_amts, rec_factors, rec_infs, rec_st
     return expenses, one_times
 
 
-def _build_accounts(names, types, owners, bals, rets, contribs, costs, matches, styles) -> list:
+def _build_accounts(names, types, owners, bals, rets, vols, contribs, costs, matches, styles) -> list:
     """Build accounts list from form inputs."""
     accounts = []
     for i in range(len(names)):
@@ -141,6 +137,7 @@ def _build_accounts(names, types, owners, bals, rets, contribs, costs, matches, 
             "owner": owners[i] if i < len(owners) else "joint",
             "balance": float((bals[i] if i < len(bals) else 0) or 0),
             "annual_return_pct": float((rets[i] if i < len(rets) else 0) or 0),
+            "volatility_pct": float((vols[i] if i < len(vols) else 0) or 0),
             "annual_contribution": float((contribs[i] if i < len(contribs) else 0) or 0),
             "cost_basis": float((costs[i] if i < len(costs) else 0) or 0) if acc_type == "brokerage" else 0.0,
             "employer_match": float((matches[i] if i < len(matches) else 0) or 0) if acc_type == "401k" else 0.0,
@@ -203,9 +200,6 @@ def register_forms_callbacks(app: dash.Dash):
         Input("profile-inflation-rate", "value"),
         # Monte Carlo
         Input("profile-mc-seed", "value"),
-        Input("profile-mc-mean-return", "value"),
-        Input("profile-mc-std-dev", "value"),
-        Input("profile-mc-bond-return", "value"),
         # State: current store
         State("profile-store", "data"),
         prevent_initial_call=True,
@@ -214,14 +208,14 @@ def register_forms_callbacks(app: dash.Dash):
         slf_n, slf_yr, slf_mo, slf_ret_yr, slf_life, slf_ss_ben, slf_ss_age,
         sp_n, sp_yr, sp_mo, sp_ret_yr, sp_life, sp_ss_ben, sp_ss_age,
         filing, inflation,
-        mc_seed, mc_mean, mc_std, mc_bond,
+        mc_seed,
         profile_data,
     ):
         return _merge_profile_data(
             profile_data, filing, inflation,
             slf_n, slf_yr, slf_mo, slf_ret_yr, slf_life, slf_ss_ben, slf_ss_age,
             sp_n, sp_yr, sp_mo, sp_ret_yr, sp_life, sp_ss_ben, sp_ss_age,
-            mc_seed, mc_mean, mc_std, mc_bond,
+            mc_seed,
         )
 
     # ── Reset Profile ────────────────────────────────────────────────────
@@ -399,6 +393,7 @@ def register_forms_callbacks(app: dash.Dash):
         Input({"type": "acc-owner", "index": ALL}, "value"),
         Input({"type": "acc-balance", "index": ALL}, "value"),
         Input({"type": "acc-return", "index": ALL}, "value"),
+        Input({"type": "acc-volatility", "index": ALL}, "value"),
         Input({"type": "acc-contrib", "index": ALL}, "value"),
         Input({"type": "acc-cost-basis", "index": ALL}, "value"),
         Input({"type": "acc-match", "index": ALL}, "value"),
@@ -406,7 +401,7 @@ def register_forms_callbacks(app: dash.Dash):
         State("profile-store", "data"),
         prevent_initial_call=True,
     )
-    def auto_sync_investments(names, types, owners, bals, rets, contribs, costs, matches, styles, profile_data):
+    def auto_sync_investments(names, types, owners, bals, rets, vols, contribs, costs, matches, styles, profile_data):
         if not profile_data:
             raise dash.exceptions.PreventUpdate
 
@@ -417,7 +412,7 @@ def register_forms_callbacks(app: dash.Dash):
             raise dash.exceptions.PreventUpdate
 
         profile_data["accounts"] = _build_accounts(
-            names_list, types or [], owners or [], bals or [], rets or [],
+            names_list, types or [], owners or [], bals or [], rets or [], vols or [],
             contribs or [], costs or [], matches or [], styles or [],
         )
         return profile_data

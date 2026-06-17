@@ -66,15 +66,6 @@ class MonteCarloConfig:
     # Number of independent simulation trials to run
     num_trials: int = 1000
 
-    # Equity return distribution (applied to all equity-like accounts:
-    # 401k, trad_ira, roth_ira, roth_401k, brokerage)
-    mean_return_pct: float = 7.0       # geometric mean annual return (%)
-    std_dev_pct: float = 15.0          # annual standard deviation (%, S&P historical ~15-16%)
-
-    # Bond/cash-like return distribution (applied to savings, HSA)
-    bond_mean_return_pct: float = 4.0  # annual mean for low-volatility accounts
-    bond_std_dev_pct: float = 5.0      # annual std dev for low-volatility accounts
-
     # Optional fixed seed for reproducibility (None = random each run)
     random_seed: Optional[int] = None
 
@@ -216,6 +207,7 @@ class InvestmentAccount:
     annual_contribution: float = 0.0
     employer_match: float = 0.0       # annual employer match (401k only)
     annual_return_pct: float = 7.0    # nominal expected annual return
+    volatility_pct: float = 15.0      # expected annual volatility (std dev)
     owner: Literal["self", "spouse"] = "self"
 
     @property
@@ -452,19 +444,19 @@ class PlanProfile:
             ],
             accounts=[
                 InvestmentAccount(name="401(k)", account_type="401k", balance=500_000,
-                                  annual_contribution=23_000, employer_match=11_500, annual_return_pct=7.0, owner="self"),
+                                  annual_contribution=23_000, employer_match=11_500, annual_return_pct=7.0, volatility_pct=15.0, owner="self"),
                 InvestmentAccount(name="Spouse 401(k)", account_type="401k", balance=350_000,
-                                  annual_contribution=23_000, employer_match=8_000, annual_return_pct=7.0, owner="spouse"),
+                                  annual_contribution=23_000, employer_match=8_000, annual_return_pct=7.0, volatility_pct=15.0, owner="spouse"),
                 InvestmentAccount(name="Traditional IRA", account_type="trad_ira", balance=150_000,
-                                  annual_contribution=7_000, annual_return_pct=7.0, owner="self"),
+                                  annual_contribution=7_000, annual_return_pct=7.0, volatility_pct=15.0, owner="self"),
                 InvestmentAccount(name="Roth IRA", account_type="roth_ira", balance=100_000,
-                                  annual_contribution=7_000, annual_return_pct=7.0, owner="self"),
+                                  annual_contribution=7_000, annual_return_pct=7.0, volatility_pct=15.0, owner="self"),
                 InvestmentAccount(name="Spouse Roth IRA", account_type="roth_ira", balance=80_000,
-                                  annual_contribution=7_000, annual_return_pct=7.0, owner="spouse"),
+                                  annual_contribution=7_000, annual_return_pct=7.0, volatility_pct=15.0, owner="spouse"),
                 InvestmentAccount(name="Brokerage", account_type="brokerage", balance=200_000, cost_basis=150_000,
-                                  annual_contribution=24_000, annual_return_pct=7.0, owner="self"),
+                                  annual_contribution=24_000, annual_return_pct=7.0, volatility_pct=15.0, owner="self"),
                 InvestmentAccount(name="HSA", account_type="hsa", balance=30_000,
-                                  annual_contribution=8_300, annual_return_pct=7.0, owner="self"),
+                                  annual_contribution=8_300, annual_return_pct=4.0, volatility_pct=5.0, owner="self"),
             ],
             properties=[
                 Property(name="Primary Home", property_type="primary", current_value=950_000,

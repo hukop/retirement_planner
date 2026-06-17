@@ -490,10 +490,11 @@ class ProjectionEngine:
             # ── 5. Grow all accounts ──────────────────────────────────────
             month_growth = 0.0
             if self.return_overrides is not None:
-                monthly_rate = float(self.return_overrides[m])
+                monthly_rate = self.return_overrides[m]
                 if fast_path:
-                    for s in invest_portfolio:
-                        growth = s.balance * monthly_rate
+                    for idx, s in enumerate(invest_portfolio):
+                        rate = float(monthly_rate[idx])
+                        growth = s.balance * rate
                         s.balance += growth
                         s.total_growth += growth
                         month_growth += growth

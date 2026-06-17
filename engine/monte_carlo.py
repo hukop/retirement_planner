@@ -67,11 +67,6 @@ from engine.withdrawal import RMD_ACCOUNT_TYPES, WITHDRAWAL_TIERS, distribution_
 # Account bucketing
 # ---------------------------------------------------------------------------
 
-# Equity-like accounts share the main (volatile) return sequence
-_EQUITY_ACCOUNT_TYPES = {"401k", "trad_ira", "roth_ira", "roth_401k", "brokerage"}
-# Low-volatility accounts get a separate bond/cash return sequence
-_BOND_ACCOUNT_TYPES   = {"savings", "hsa"}
-
 _TAXABLE = 0
 _TAX_DEFERRED = 1
 _TAX_FREE = 2
@@ -145,7 +140,7 @@ def _annual_to_monthly_lognormal_params(
     -------
     (mu_monthly, sigma_monthly) — parameters for np.random.normal that,
     when exponentiated (np.exp(sample)), give a valid monthly return
-    multiplier: (1 + r_monthly).
+    multiplier: (1 + r_monthly). Supports both float and np.ndarray inputs.
     """
     mu_a    = annual_mean_pct / 100.0
     sigma_a = annual_std_pct  / 100.0
@@ -160,94 +155,58 @@ def _annual_to_monthly_lognormal_params(
 
 
 def generate_return_sequences(
-    config:     MonteCarloConfig,
+    profile:    PlanProfile,
     num_months: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> np.ndarray:
     """
-    Generate random monthly return sequences for equity and bond buckets.
+    Generate random monthly return sequences for each account.
 
     Parameters
     ----------
-    config     : MonteCarloConfig with mean/std dev and trial count
+    profile    : PlanProfile containing accounts and Monte Carlo config
     num_months : number of monthly time steps per trial
 
     Returns
     -------
-    equity_returns : shape (num_trials, num_months) — monthly return multipliers
-                     for equity-like accounts (401k, IRA, brokerage …)
-    bond_returns   : shape (num_trials, num_months) — monthly return multipliers
-                     for low-volatility accounts (savings, HSA)
+    account_returns : shape (num_trials, num_months, num_accounts) — monthly return 
+                      multipliers for each account.
 
-    Each value is a monthly return *rate* (not multiplier), so the caller does:
-        new_balance = old_balance * (1 + equity_returns[trial, month])
+    All accounts share the same underlying random shock Z ~ N(0,1) for each month
+    to simulate 100% correlation (systematic market risk), but the shock is scaled
+    by each account's specific volatility and mean return parameters.
     """
+    config = profile.monte_carlo
     rng = np.random.default_rng(config.random_seed)
-
-    # Equity parameters
-    mu_eq, sigma_eq = _annual_to_monthly_lognormal_params(
-        config.mean_return_pct, config.std_dev_pct
-    )
-    # Bond parameters
-    mu_bd, sigma_bd = _annual_to_monthly_lognormal_params(
-        config.bond_mean_return_pct, config.bond_std_dev_pct
-    )
 
     n = config.num_trials
     m = num_months
+    num_accounts = len(profile.accounts)
 
-    # Draw from normal, then convert to return rate via exp(x) - 1
-    equity_log_returns = rng.normal(loc=mu_eq, scale=sigma_eq, size=(n, m))
-    bond_log_returns   = rng.normal(loc=mu_bd, scale=sigma_bd, size=(n, m))
+    if num_accounts == 0:
+        return np.zeros((n, m, 0))
 
+    # 1. Generate the shared standard normal shocks: shape (n, m, 1)
+    Z = rng.normal(loc=0.0, scale=1.0, size=(n, m, 1))
+
+    # 2. Extract per-account parameters: shape (num_accounts,)
+    annual_means = np.array([acc.annual_return_pct for acc in profile.accounts])
+    annual_vols = np.array([getattr(acc, 'volatility_pct', 15.0) for acc in profile.accounts])
+
+    # 3. Convert to monthly log-normal parameters
+    mu_m, sigma_m = _annual_to_monthly_lognormal_params(annual_means, annual_vols)
+    
+    # Reshape for broadcasting: shape (1, 1, num_accounts)
+    mu_m = mu_m.reshape(1, 1, num_accounts)
+    sigma_m = sigma_m.reshape(1, 1, num_accounts)
+
+    # 4. Compute log returns and exponentiate
+    # log_returns shape: (num_trials, num_months, num_accounts)
+    log_returns = mu_m + sigma_m * Z
+    
     # Convert log-normal draws to return rates: r = e^x - 1
-    equity_returns = np.exp(equity_log_returns) - 1.0
-    bond_returns   = np.exp(bond_log_returns)   - 1.0
+    account_returns = np.exp(log_returns) - 1.0
 
-    return equity_returns, bond_returns
-
-
-# ---------------------------------------------------------------------------
-# Mixed return sequence (blends equity/bond per account bucket)
-# ---------------------------------------------------------------------------
-
-def _compute_blend_weights(
-    profile: PlanProfile,
-) -> tuple[float, float]:
-    """
-    Compute portfolio-weighted equity/bond blend weights from initial balances.
-
-    Returns (eq_weight, bond_weight) that sum to 1.0.
-    If total is 0, returns (1.0, 0.0) as a fallback.
-    """
-    total_equity = sum(
-        a.balance for a in profile.accounts
-        if a.account_type in _EQUITY_ACCOUNT_TYPES
-    )
-    total_bond = sum(
-        a.balance for a in profile.accounts
-        if a.account_type in _BOND_ACCOUNT_TYPES
-    )
-    total = total_equity + total_bond
-
-    if total <= 0:
-        return 1.0, 0.0  # fallback: all equity
-
-    return total_equity / total, total_bond / total
-
-
-def _build_all_blended_sequences(
-    equity_seqs: np.ndarray,  # shape (num_trials, num_months)
-    bond_seqs:   np.ndarray,  # shape (num_trials, num_months)
-    profile:     PlanProfile,
-) -> np.ndarray:
-    """
-    Build blended monthly return sequences for ALL trials at once via
-    vectorized NumPy operations.
-
-    Returns shape (num_trials, num_months).
-    """
-    eq_weight, bond_weight = _compute_blend_weights(profile)
-    return eq_weight * equity_seqs + bond_weight * bond_seqs
+    return account_returns
 
 
 # ---------------------------------------------------------------------------
@@ -704,11 +663,13 @@ def _run_fast_trial(
         for idx, name in enumerate(context.account_names)
     }
     trial_eoy_net_worths: dict[int, float] = {}
-    trailing_returns = (
-        _compute_trailing_12m_returns(monthly_returns)
-        if adaptive_spending
-        else None
-    )
+    if adaptive_spending:
+        total_init = np.sum(context.initial_balances)
+        initial_weights = context.initial_balances / total_init if total_init > 0 else np.ones(len(context.initial_balances)) / len(context.initial_balances)
+        blended_returns = np.sum(monthly_returns * initial_weights, axis=1)
+        trailing_returns = _compute_trailing_12m_returns(blended_returns)
+    else:
+        trailing_returns = None
 
     for m in range(context.num_months):
         month = int(context.month_numbers[m])
@@ -775,7 +736,7 @@ def _run_fast_trial(
                 balances[idx] += contribution
                 cost_basis[idx] += contribution
 
-        monthly_rate = float(monthly_returns[m])
+        monthly_rate = monthly_returns[m]
         balances += balances * monthly_rate
 
         taxable_monthly_income = float(context.taxable_monthly_income[m])
@@ -882,8 +843,8 @@ def _build_partial_result(
         deterministic_df=det_annual.to_dict("records"),
         ruin_years=[int(x) if x is not None else None for x in ruin_years],
         num_trials_actual=n_completed,
-        mean_return_pct=float(config.mean_return_pct),
-        std_dev_pct=float(config.std_dev_pct),
+        mean_return_pct=0.0,
+        std_dev_pct=0.0,
     )
 
 
@@ -930,12 +891,10 @@ def run_monte_carlo(
     det_annual_nw = dict(zip(det_annual["year"], det_annual["net_worth_eoy"]))
 
     # ── Step 2: Generate all return sequences at once ─────────────────────
-    equity_seqs, bond_seqs = generate_return_sequences(config, num_months)
+    # shape: (num_trials, num_months, num_accounts)
+    all_account_seqs = generate_return_sequences(profile, num_months)
 
-    # ── Step 3: Vectorized blending (all trials at once) ──────────────────
-    all_blended = _build_all_blended_sequences(equity_seqs, bond_seqs, profile)
-
-    # Step 4: Run N trials using the primitive Monte Carlo fast kernel.
+    # Step 3: Run N trials using the primitive Monte Carlo fast kernel.
     fast_context = _build_fast_context(
         profile=profile,
         det_engine=det_engine,
@@ -952,7 +911,7 @@ def run_monte_carlo(
     for trial_idx in range(n):
         eoy_nws, r_yr = _run_fast_trial(
             fast_context,
-            all_blended[trial_idx],
+            all_account_seqs[trial_idx],
             adaptive_spending=adaptive_spending,
         )
 
@@ -995,7 +954,7 @@ def run_monte_carlo(
     for idx in {worst_idx, best_idx, median_idx}:
         slow_engine = ProjectionEngine(
             profile,
-            return_overrides=all_blended[idx],
+            return_overrides=all_account_seqs[idx],
             det_annual_nw=det_annual_nw,
             adaptive_spending=adaptive_spending,
             precomputed_salary_self=det_engine.precomputed_salary_self,

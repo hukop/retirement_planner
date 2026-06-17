@@ -344,7 +344,7 @@ def total_by_tax_treatment(portfolio: list[AccountState]) -> dict[str, float]:
 
 def grow_all(
     portfolio: list[AccountState],
-    monthly_rate_override: Optional[float] = None,
+    monthly_rate_override: Optional[float | list[float] | np.ndarray] = None,
 ) -> float:
     """
     Apply one month of growth to every account.
@@ -352,17 +352,23 @@ def grow_all(
     Parameters
     ----------
     portfolio            : list of AccountState objects
-    monthly_rate_override: if provided, ALL accounts use this monthly rate
-                           instead of their own configured return rate.
-                           Used by the Monte Carlo engine to inject a shared
-                           randomized return sequence across all equity accounts.
-                           When None (default), each account uses its own rate.
+    monthly_rate_override: if provided, can be a single float (applied to all)
+                           or an array of floats (one per account).
 
     Returns
     -------
     Total dollar growth applied across all accounts this month.
     """
-    return sum(s.grow(monthly_rate=monthly_rate_override) for s in portfolio)
+    total = 0.0
+    for idx, s in enumerate(portfolio):
+        if monthly_rate_override is None:
+            rate = None
+        elif isinstance(monthly_rate_override, (float, int)):
+            rate = float(monthly_rate_override)
+        else:
+            rate = float(monthly_rate_override[idx])
+        total += s.grow(monthly_rate=rate)
+    return total
 
 
 def contribute_all(

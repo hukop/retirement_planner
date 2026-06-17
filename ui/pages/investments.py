@@ -146,6 +146,17 @@ def _investment_item(idx: int, acc: dict) -> html.Div:
                         ),
                         xs=12, md=4,
                     ),
+                    dbc.Col(
+                        input_row(
+                            label="Volatility %",
+                            input_id={"type": "acc-volatility", "index": idx},
+                            value=acc.get("volatility_pct", 15.0),
+                            suffix="%",
+                            step=0.1,
+                            tooltip="Expected standard deviation of returns (e.g. 15% for S&P 500, 5% for bonds)."
+                        ),
+                        xs=12, md=4,
+                    ),
                 ],
                 className="g-3 pt-2 pb-1"
             ),

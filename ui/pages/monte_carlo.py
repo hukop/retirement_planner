@@ -496,8 +496,8 @@ def _results_section(result: MonteCarloResult, retire_yr: int) -> html.Div:
         ("Trials run",          f"{result.num_trials:,}",               "blue"),
         ("Success rate",        _fmt_pct(result.success_rate),          "green" if result.success_rate >= 0.8 else "amber"),
         ("Trials that fail",    f"{fail_count:,}  ({fail_count/result.num_trials*100:.1f}%)", "red"),
-        ("Assumed equity mean", f"{result.mean_return_pct:.1f}% / yr",  "purple"),
-        ("Assumed volatility",  f"{result.std_dev_pct:.1f}% std dev",   "amber"),
+        ("Per-account returns",  "Set on Investments tab",              "purple"),
+        ("Per-account volatility", "Set on Investments tab",            "amber"),
     ])
 
     return html.Div([

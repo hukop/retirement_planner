@@ -260,7 +260,7 @@ def _global_settings(profile: PlanProfile) -> html.Div:
 def _monte_carlo_settings(mc: MonteCarloConfig) -> html.Div:
     return section_card(
         title="🎲  Monte Carlo Simulation Settings",
-        subtitle="Configure the return assumptions and trial count for probabilistic projections.",
+        subtitle="Return rates and volatility are now configured per-account on the Investments tab.",
         children=[
             dbc.Row([
                 dbc.Col([
@@ -275,31 +275,20 @@ def _monte_carlo_settings(mc: MonteCarloConfig) -> html.Div:
                         tooltip="Set a fixed seed to get the same results every run.",
                     ),
                 ], xs=12, md=6),
-
                 dbc.Col([
-                    input_row(
-                        "Expected Equity Return",
-                        "profile-mc-mean-return",
-                        input_type="number",
-                        value=mc.mean_return_pct,
-                        suffix="%",
-                        tooltip="Mean annual return for equity accounts.",
-                    ),
-                    input_row(
-                        "Annual Equity Volatility",
-                        "profile-mc-std-dev",
-                        input_type="number",
-                        value=mc.std_dev_pct,
-                        suffix="%",
-                        tooltip="Annual standard deviation of equity returns.",
-                    ),
-                    input_row(
-                        "Expected Bond/Cash Return",
-                        "profile-mc-bond-return",
-                        input_type="number",
-                        value=mc.bond_mean_return_pct,
-                        suffix="%",
-                        tooltip="Mean annual return for low-volatility accounts.",
+                    html.Div(
+                        [
+                            html.Span("📊  Per-account returns & volatility",
+                                      style={"fontSize": "13px", "color": "var(--text-secondary)",
+                                             "fontWeight": "500"}),
+                            html.Br(),
+                            html.Span(
+                                "Set the Annual Return % and Volatility % for each account on the Investments tab.",
+                                style={"fontSize": "12px", "color": "var(--text-muted)"},
+                            ),
+                        ],
+                        style={"padding": "12px", "borderRadius": "8px",
+                               "background": "var(--bg-surface)", "marginTop": "4px"},
                     ),
                 ], xs=12, md=6),
             ], className="g-4"),
