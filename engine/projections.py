@@ -106,6 +106,12 @@ class _YearState:
     withdrawals_total:float = 0.0
     expense_total:    float = 0.0
     tax_paid:         float = 0.0
+    # Detailed taxes (recorded at year-end true-up)
+    tax_federal_ordinary: float = 0.0
+    tax_federal_ltcg:     float = 0.0
+    tax_ca:               float = 0.0
+    # Per-account withdrawal tracking
+    withdrawals_by_account: dict[str, float] = field(default_factory=dict)
     # Cumulative monthly net need (sum of monthly_need across the year)
     annual_net_need:  float = 0.0
     # Prior-year effective rate (bootstrap from profile for year 1)
@@ -477,15 +483,22 @@ class ProjectionEngine:
 
             # ── 4. Contributions (working owners only) ────────────────────
             month_contrib = 0.0
+            month_employee_contrib = 0.0
+            month_pretax_deduction = 0.0
+            month_employer_match = 0.0
+            
             if self_working or spouse_working:
-                if fast_path:
-                    for state in invest_portfolio:
-                        owner = state.account.owner
-                        if (owner == "self" and self_working) or (owner == "spouse" and spouse_working):
-                            month_contrib += state.contribute(include_match=True)
-                else:
-                    is_working = {"self": self_working, "spouse": spouse_working}
-                    month_contrib = contribute_all(invest_portfolio, is_working)
+                for state in invest_portfolio:
+                    owner = state.account.owner
+                    if (owner == "self" and self_working) or (owner == "spouse" and spouse_working):
+                        dep = state.contribute(include_match=True)
+                        month_contrib += dep
+                        emp_dep = state.account.annual_contribution / 12
+                        match_dep = state.account.employer_match / 12
+                        month_employee_contrib += emp_dep
+                        month_employer_match += match_dep
+                        if state.tax_treatment == "tax_deferred":
+                            month_pretax_deduction += emp_dep
 
             # ── 5. Grow all accounts ──────────────────────────────────────
             month_growth = 0.0
@@ -505,12 +518,13 @@ class ProjectionEngine:
 
             # ── 6. Tax estimate (monthly, based on prior-year eff rate) ────
             if fast_path:
-                annual_income_est = income_total * 12
+                # Pre-tax deductions lower the annualized estimate
+                annual_income_est = (income_total - month_pretax_deduction) * 12
             else:
                 annual_income_est = (
                     inc["income_salary_self"] + inc["income_salary_spouse"] +
                     inc["income_other"] + inc["income_ss_self"] + inc["income_ss_spouse"] +
-                    inc["income_rental_net"]
+                    inc["income_rental_net"] - month_pretax_deduction
                 ) * 12
 
             monthly_tax_est = self._monthly_tax_estimate(
@@ -519,8 +533,21 @@ class ProjectionEngine:
                 month=month,
             )
 
-            # ── 7. Withdrawals (retirement months) ───────────────────────
-            monthly_need = max(0.0, expense_total - income_total + monthly_tax_est)
+            # ── 7. Withdrawals and Surplus ───────────────────────────────────
+            # Deduct employee contributions from available cashflow income
+            cashflow_income = max(0.0, income_total - month_employee_contrib)
+            monthly_need = max(0.0, expense_total - cashflow_income + monthly_tax_est)
+            monthly_surplus = max(0.0, cashflow_income - expense_total - monthly_tax_est)
+
+            # Deposit surplus into the first taxable account (brokerage/savings)
+            if monthly_surplus > 0:
+                for s in ordered_portfolio:
+                    if s.tax_treatment == "taxable":
+                        s.balance += monthly_surplus
+                        s.cost_basis += monthly_surplus
+                        s.total_contributed += monthly_surplus
+                        month_contrib += monthly_surplus
+                        break
 
             if not fast_path:
                 wd_row: dict = {
@@ -561,9 +588,13 @@ class ProjectionEngine:
                             "withdrawal_shortfall":round(wd_plan.shortfall,             2),
                             "rmd_excess":          round(wd_plan.rmd_excess,            2),
                         }
+                        for wr in wd_plan.withdrawals:
+                            k = f"withdrawal_{_slugify(wr.account_name)}"
+                            wd_row[k] = wd_row.get(k, 0.0) + round(wr.withdrawn, 2)
                 else:
                     remaining = monthly_need
                     w_ordinary = w_gains = w_total = 0.0
+                    wd_by_acct = {}
                     for state in ordered_portfolio:
                         if remaining <= 0:
                             break
@@ -571,6 +602,8 @@ class ProjectionEngine:
                         w_ordinary += wr.ordinary_income
                         w_gains    += wr.capital_gain
                         w_total    += wr.withdrawn
+                        k = f"withdrawal_{_slugify(wr.account_name)}"
+                        wd_by_acct[k] = wd_by_acct.get(k, 0.0) + wr.withdrawn
                         remaining  -= wr.withdrawn
 
                     if fast_path:
@@ -586,11 +619,13 @@ class ProjectionEngine:
                             "withdrawal_shortfall":round(max(0, remaining), 2),
                             "rmd_excess":          0.0,
                         }
+                        for k, v in wd_by_acct.items():
+                            wd_row[k] = round(v, 2)
 
             # ── 8. Accumulate year-to-date totals ────────────────────────
             if fast_path:
                 ss_sum = precomputed_ss_self[m] + precomputed_ss_spouse[m]
-                yr_state.income_ordinary += (income_total - precomputed_rental_net[m] - ss_sum)
+                yr_state.income_ordinary += (income_total - precomputed_rental_net[m] - ss_sum - month_pretax_deduction)
                 yr_state.income_ss       += ss_sum
                 yr_state.income_rental   += precomputed_rental_net[m]
                 yr_state.cap_gains       += wd_gains
@@ -600,7 +635,7 @@ class ProjectionEngine:
                 yr_state.tax_paid        += monthly_tax_est
             else:
                 yr_state.income_ordinary += (
-                    inc["income_salary_self"] + inc["income_salary_spouse"] + inc["income_other"]
+                    inc["income_salary_self"] + inc["income_salary_spouse"] + inc["income_other"] - month_pretax_deduction
                 )
                 yr_state.income_ss       += inc["income_ss_self"] + inc["income_ss_spouse"]
                 yr_state.income_rental   += inc["income_rental_net"]
@@ -618,6 +653,10 @@ class ProjectionEngine:
                     ss_income=yr_state.income_ss,
                     filing_status=self.profile.filing_status,
                 )
+                yr_state.tax_federal_ordinary = actual_tax_res.federal_ordinary_tax
+                yr_state.tax_federal_ltcg     = actual_tax_res.federal_ltcg_tax
+                yr_state.tax_ca               = actual_tax_res.ca_tax
+                
                 shortfall = actual_tax_res.total_tax - yr_state.tax_paid
 
                 if shortfall > 0:
@@ -625,6 +664,7 @@ class ProjectionEngine:
                         # Retirement: withdraw the tax shortfall from accounts.
                         remaining_shortfall = shortfall
                         w_ord = w_gains = w_total = 0.0
+                        wd_by_acct_shortfall = {}
                         for state in ordered_portfolio:
                             if remaining_shortfall <= 0:
                                 break
@@ -632,6 +672,8 @@ class ProjectionEngine:
                             w_ord += wr.ordinary_income
                             w_gains += wr.capital_gain
                             w_total += wr.withdrawn
+                            k = f"withdrawal_{_slugify(wr.account_name)}"
+                            wd_by_acct_shortfall[k] = wd_by_acct_shortfall.get(k, 0.0) + wr.withdrawn
                             remaining_shortfall -= wr.withdrawn
 
                         paid_trueup = shortfall - remaining_shortfall
@@ -644,6 +686,9 @@ class ProjectionEngine:
                             wd_row["withdrawal_gains"] += w_gains
                             wd_row["withdrawal_ordinary"] += w_ord
                             wd_row["withdrawal_total"] += w_total
+                            # Add shortfall withdrawals to the per-account totals
+                            for k, v in wd_by_acct_shortfall.items():
+                                wd_row[k] = wd_row.get(k, 0.0) + round(v, 2)
                     else:
                         # Working years: carry the shortfall to next year's
                         # monthly tax estimates (deducted from income, not accounts).
@@ -687,11 +732,16 @@ class ProjectionEngine:
                 **{k: round(v, 2) for k, v in exp.items()},
                 # Contributions & Growth
                 "contrib_total":   round(month_contrib, 2),
+                "contrib_employer_match": round(month_employer_match, 2),
                 "growth_total":    round(month_growth,  2),
                 # Withdrawals
                 **{k: round(v, 2) for k, v in wd_row.items()},
                 # Taxes
                 "tax_monthly_est": round(monthly_tax_est, 2),
+                "tax_federal_ordinary": round(yr_state.tax_federal_ordinary, 2) if month == 12 else 0.0,
+                "tax_federal_ltcg": round(yr_state.tax_federal_ltcg, 2) if month == 12 else 0.0,
+                "tax_ca": round(yr_state.tax_ca, 2) if month == 12 else 0.0,
+                "tax_total_actual": round(yr_state.tax_federal_ordinary + yr_state.tax_federal_ltcg + yr_state.tax_ca, 2) if month == 12 else 0.0,
                 # Account balances (end-of-month snapshot)
                 **{
                     f"bal_{_slugify(s.account.name)}": round(s.balance, 2)
@@ -703,7 +753,7 @@ class ProjectionEngine:
                 "net_worth":                round(net_worth,    2),
                 # Cash flow
                 "net_cash_flow": round(
-                    inc["income_total"] + wd_row["withdrawal_total"]
+                    cashflow_income + wd_row["withdrawal_total"]
                     - exp["expense_total"] - monthly_tax_est, 2
                 ),
             }
@@ -999,6 +1049,9 @@ class ProjectionEngine:
         ))]
         # tax_monthly_est → annual sum
         flow_cols += ["tax_monthly_est"]
+        for tax_col in ["tax_federal_ordinary", "tax_federal_ltcg", "tax_ca", "tax_total_actual"]:
+            if tax_col in monthly_df.columns:
+                flow_cols.append(tax_col)
 
         # Columns to take as END-OF-YEAR SNAPSHOT (December row)
         snapshot_cols = [c for c in monthly_df.columns if c.startswith((
@@ -1033,6 +1086,14 @@ class ProjectionEngine:
         annual["surplus_deficit"] = (
             annual["income_total"] + annual["withdrawal_total"]
             - annual["expense_total"] - annual["tax_annual_est"]
+        )
+
+        # Cashflow sanity check (should sum to 0)
+        # In = income_total + withdrawal_total + contrib_employer_match
+        # Out = expense_total + tax_annual_est + contrib_total
+        annual["cashflow_check"] = round(
+            annual["income_total"] + annual.get("contrib_employer_match", 0.0) + annual["withdrawal_total"]
+            - annual["expense_total"] - annual["tax_annual_est"] - annual["contrib_total"], 2
         )
 
         return annual

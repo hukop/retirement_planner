@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 import dash
-from dash import Input, Output, State, html
+from dash import Input, Output, State, html, dcc
 import dash_bootstrap_components as dbc
 from datetime import datetime
 
@@ -264,3 +264,21 @@ def register_runner_callbacks(app: dash.Dash):
             return dash.no_update, dash.no_update, dash.no_update, dbc.Toast(
                 f"Failed to load: {str(e)}", header="Error", icon="danger", duration=4000, is_open=True
             )
+
+    # ── Export CSV ────────────────────────────────────────────────────────
+    @app.callback(
+        Output("download-csv", "data"),
+        Input("btn-export-csv", "n_clicks"),
+        State("projection-store", "data"),
+        prevent_initial_call=True
+    )
+    def export_csv(n_clicks, proj_data):
+        if not proj_data:
+            raise dash.exceptions.PreventUpdate
+
+        import pandas as pd
+        df = pd.DataFrame(proj_data)
+        
+        # Internal dataframe names are used directly as requested by the user
+        return dcc.send_data_frame(df.to_csv, "retirement_projections.csv", index=False)
+

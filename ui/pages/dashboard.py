@@ -299,6 +299,13 @@ def _quick_actions() -> html.Div:
                 href="/projections",
                 style={"textDecoration": "none"},
             ),
+            html.Div(style={"height": "8px"}),
+            html.Button(
+                "📥  Export CSV",
+                id="btn-export-csv",
+                className="btn-ghost",
+                style={"display": "block", "width": "100%", "textAlign": "center"}
+            ),
         ],
         style={"marginTop": "16px"},
     )
@@ -425,6 +432,7 @@ def layout(
 
     return html.Div(
         [
+            dcc.Download(id="download-csv"),
             html.P(f"{profile.plan_name}  ·  {profile.self_person.name} & {profile.spouse.name}",
                    style={"fontSize": "14px", "color": "var(--text-secondary)", "marginBottom": "24px"}),
             card_row,
