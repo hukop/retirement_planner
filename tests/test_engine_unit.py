@@ -26,7 +26,7 @@ from engine.models import (
     InvestmentAccount, Property, PlanProfile,
     ACCOUNT_TAX_TREATMENT,
 )
-from engine.projections import ProjectionEngine, run_projection
+from engine.projections import CASHFLOW_CHECK_TOLERANCE, ProjectionEngine, run_projection
 from engine.taxes import calculate_taxes, _bracket_tax, ss_taxable_federal
 from engine.social_security import (
     full_retirement_age, fra_in_years, claiming_factor,
@@ -881,6 +881,97 @@ class TestProjectionEngineScenarios(unittest.TestCase):
         p = PlanProfile.sample()
         monthly, annual = run_projection(p)
         self.assertIn("surplus_deficit", annual.columns)
+
+    def test_projection_cashflow_check_balances_each_year(self):
+        _cur = date.today().year
+        p = _make_profile(
+            self_person=Person(birth_year=_cur - 50, birth_month=1,
+                               retirement_year=_cur + 1, life_expectancy=53,
+                               ss_monthly_benefit=0),
+            spouse=Person(birth_year=_cur - 50, birth_month=1,
+                          retirement_year=_cur + 1, life_expectancy=53,
+                          ss_monthly_benefit=0),
+            inflation_rate_pct=0.0,
+            incomes=[
+                IncomeSource(name="Part-Time", annual_amount=24_000,
+                             annual_raise_pct=0.0, owner="self"),
+            ],
+            expenses=[
+                Expense(name="Living", monthly_amount=1_000,
+                        category="other", inflation_adjusted=False),
+            ],
+            accounts=[
+                InvestmentAccount(
+                    name="Brokerage",
+                    account_type="brokerage",
+                    balance=200_000,
+                    cost_basis=200_000,
+                    annual_contribution=6_000,
+                    employer_match=1_200,
+                    annual_return_pct=0.0,
+                    owner="self",
+                ),
+            ],
+        )
+
+        _, annual = run_projection(p)
+
+        self.assertIn("cashflow_check", annual.columns)
+        self.assertIn("cashflow_check_ok", annual.columns)
+        self.assertTrue(annual["cashflow_check_ok"].all())
+        self.assertLessEqual(
+            annual["cashflow_check"].abs().max(),
+            CASHFLOW_CHECK_TOLERANCE,
+        )
+
+    def test_working_year_tax_trueup_does_not_break_cashflow_check(self):
+        _cur = date.today().year
+        p = _make_profile(
+            self_person=Person(birth_year=_cur - 50, birth_month=1,
+                               retirement_year=_cur + 5, life_expectancy=54,
+                               ss_monthly_benefit=0),
+            spouse=Person(birth_year=_cur - 50, birth_month=1,
+                          retirement_year=_cur + 5, life_expectancy=54,
+                          ss_monthly_benefit=0),
+            inflation_rate_pct=0.0,
+            incomes=[
+                IncomeSource(name="Salary", annual_amount=400_000,
+                             annual_raise_pct=0.0, owner="self"),
+            ],
+            expenses=[
+                Expense(name="Living", monthly_amount=5_000,
+                        category="other", inflation_adjusted=False),
+            ],
+            accounts=[
+                InvestmentAccount(
+                    name="Brokerage",
+                    account_type="brokerage",
+                    balance=100_000,
+                    cost_basis=100_000,
+                    annual_contribution=60_000,
+                    annual_return_pct=0.0,
+                    owner="self",
+                ),
+            ],
+            properties=[
+                Property(
+                    name="Rental",
+                    property_type="rental",
+                    current_value=500_000,
+                    mortgage_balance=0,
+                    monthly_rental_income=10_000,
+                    monthly_expenses=0,
+                    annual_appreciation_pct=0.0,
+                ),
+            ],
+        )
+
+        _, annual = run_projection(p)
+        first_year = annual.iloc[0]
+
+        self.assertGreater(first_year["tax_total_actual"], first_year["tax_annual_est"])
+        self.assertTrue(first_year["cashflow_check_ok"])
+        self.assertLessEqual(abs(first_year["cashflow_check"]), CASHFLOW_CHECK_TOLERANCE)
 
 
 # ---------------------------------------------------------------------------

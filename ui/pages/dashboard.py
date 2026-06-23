@@ -294,12 +294,6 @@ def _quick_actions() -> html.Div:
                 style={"display": "block", "width": "100%", "marginBottom": "8px",
                        "textDecoration": "none", "textAlign": "center"},
             ),
-            html.A(
-                html.Button("▶  Run Projections", className="btn-primary-custom w-100"),
-                href="/projections",
-                style={"textDecoration": "none"},
-            ),
-            html.Div(style={"height": "8px"}),
             html.Button(
                 "📥  Export CSV",
                 id="btn-export-csv",

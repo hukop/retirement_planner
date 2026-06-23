@@ -18,7 +18,7 @@ import dash_bootstrap_components as dbc
 from dash import html, dcc
 
 from engine.models import PlanProfile, ACCOUNT_TAX_TREATMENT
-from engine.projections import run_projection, _slugify
+from engine.projections import CASHFLOW_CHECK_TOLERANCE, run_projection, _slugify
 from ui.components import (
     section_card, two_col,
     PLOTLY_DARK_TEMPLATE, retirement_vline, summary_row
@@ -71,6 +71,136 @@ def _get_projection_data(profile_data: Optional[dict], projection_data: Optional
         # Default run to populate charts if store is empty during initial load
         _, df = run_projection(profile)
     return profile, df
+
+
+def _fmt_currency(value: float, signed: bool = False) -> str:
+    """Format dollars for compact audit UI."""
+    value = float(value or 0)
+    sign = ""
+    if signed:
+        sign = "+" if value > 0 else "-" if value < 0 else ""
+    return f"{sign}${abs(value):,.2f}"
+
+
+def _with_cashflow_check_columns(annual_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure cashflow audit columns exist, including for older session data.
+
+    The engine now emits these columns directly, but users may still have an
+    existing projection-store payload from before the fields were added.
+    """
+    df = annual_df.copy()
+    required = {"income_total", "withdrawal_total", "expense_total", "tax_annual_est", "contrib_total"}
+
+    if "cashflow_check" not in df.columns and required.issubset(df.columns):
+        employer_match = df["contrib_employer_match"] if "contrib_employer_match" in df.columns else 0.0
+        df["cashflow_check"] = (
+            df["income_total"]
+            + df["withdrawal_total"]
+            + employer_match
+            - df["expense_total"]
+            - df["tax_annual_est"]
+            - df["contrib_total"]
+        ).round(2)
+
+    if "cashflow_check" in df.columns:
+        df["cashflow_check"] = pd.to_numeric(df["cashflow_check"], errors="coerce").fillna(0.0).round(2)
+        df["cashflow_check_ok"] = df["cashflow_check"].abs() <= CASHFLOW_CHECK_TOLERANCE
+
+    return df
+
+
+def _cashflow_failure_table(failed: pd.DataFrame) -> html.Div:
+    """Render the failed-year cashflow audit details."""
+    display = failed.head(12)
+    rows = []
+    for _, row in display.iterrows():
+        diff = float(row.get("cashflow_check", 0.0) or 0.0)
+        rows.append(
+            html.Tr(
+                [
+                    html.Td(f"{int(row['year'])}"),
+                    html.Td(_fmt_currency(diff, signed=True), className="cashflow-check-diff"),
+                    html.Td(_fmt_currency(row.get("income_total", 0.0))),
+                    html.Td(_fmt_currency(row.get("withdrawal_total", 0.0))),
+                    html.Td(_fmt_currency(row.get("expense_total", 0.0))),
+                    html.Td(_fmt_currency(row.get("tax_annual_est", 0.0))),
+                    html.Td(_fmt_currency(row.get("contrib_total", 0.0))),
+                ]
+            )
+        )
+
+    more_count = len(failed) - len(display)
+    more_note = html.Div(
+        f"{more_count} more failed year{'s' if more_count != 1 else ''} in the CSV export.",
+        className="cashflow-check-note",
+    ) if more_count > 0 else None
+
+    return html.Div(
+        [
+            html.Div("Failed years", className="cashflow-check-table-title"),
+            html.Div(
+                html.Table(
+                    [
+                        html.Thead(
+                            html.Tr([
+                                html.Th("Year"),
+                                html.Th("Difference"),
+                                html.Th("Income"),
+                                html.Th("Withdrawals"),
+                                html.Th("Expenses"),
+                                html.Th("Taxes"),
+                                html.Th("Contributions"),
+                            ])
+                        ),
+                        html.Tbody(rows),
+                    ],
+                    className="cashflow-check-table",
+                ),
+                className="cashflow-check-table-wrap",
+            ),
+            more_note,
+        ],
+        className="cashflow-check-details",
+    )
+
+
+def _cashflow_check_panel(annual_df: pd.DataFrame) -> html.Div:
+    """Show annual cashflow check status and failed-year details."""
+    if "cashflow_check" not in annual_df.columns or annual_df.empty:
+        return section_card(
+            "Cashflow Check",
+            children=[
+                html.Div(
+                    "Cashflow audit data is unavailable for this projection run.",
+                    className="cashflow-check-note",
+                )
+            ],
+        )
+
+    failed = annual_df[~annual_df["cashflow_check_ok"].fillna(False)]
+    max_abs = float(annual_df["cashflow_check"].abs().max() or 0.0)
+    status_ok = failed.empty
+
+    summary = summary_row([
+        ("Status", "All years pass" if status_ok else f"{len(failed)} failed year{'s' if len(failed) != 1 else ''}",
+         "green" if status_ok else "red"),
+        ("Largest Difference", _fmt_currency(max_abs), "green" if status_ok else "red"),
+        ("Tolerance", _fmt_currency(CASHFLOW_CHECK_TOLERANCE), "blue"),
+    ])
+
+    message = html.Div(
+        "Annual income, expenses, withdrawals, and contributions balance within rounding tolerance."
+        if status_ok else
+        "One or more annual cashflow rows do not balance. Review the failed years below.",
+        className=f"cashflow-check-message {'ok' if status_ok else 'fail'}",
+    )
+
+    children = [message, summary]
+    if not status_ok:
+        children.append(_cashflow_failure_table(failed))
+
+    return section_card("Cashflow Check", children=children)
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +387,7 @@ def _income_sources_chart(annual_df: pd.DataFrame, retire_yr: int) -> go.Figure:
 # ---------------------------------------------------------------------------
 def layout(profile_data: Optional[dict] = None, projection_data: Optional[list] = None) -> html.Div:
     profile, annual_df = _get_projection_data(profile_data, projection_data)
+    annual_df = _with_cashflow_check_columns(annual_df)
     ret_yr = profile.retirement_year_self
 
     # Build charts
@@ -296,6 +427,8 @@ def layout(profile_data: Optional[dict] = None, projection_data: Optional[list] 
 
             # Charts - Full Width Single Column
             section_card("Detailed Net Worth Accumulation", children=[dcc.Graph(figure=nw_fig, config={"displayModeBar": False})]),
+
+            _cashflow_check_panel(annual_df),
 
             section_card("Annual Cash Flow & Tax Withholding", children=[dcc.Graph(figure=cash_fig, config={"displayModeBar": False})]),
 

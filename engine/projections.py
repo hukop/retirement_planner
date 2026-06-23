@@ -90,6 +90,9 @@ def _inflation_factor(base_year: int, current_year: int, rate_pct: float) -> flo
     return (1 + rate_pct / 100) ** max(0, current_year - base_year)
 
 
+CASHFLOW_CHECK_TOLERANCE = 1.00
+
+
 # ---------------------------------------------------------------------------
 # Internal per-year state (reset / updated at January of each year)
 # ---------------------------------------------------------------------------
@@ -692,10 +695,11 @@ class ProjectionEngine:
                     else:
                         # Working years: carry the shortfall to next year's
                         # monthly tax estimates (deducted from income, not accounts).
+                        # It is not current-year paid cash; the year's surplus
+                        # sweep was already calculated from monthly estimates.
                         self._tax_shortfall_carryover = shortfall
-                        yr_state.tax_paid += shortfall
-                        if not fast_path:
-                            monthly_tax_est += shortfall
+                else:
+                    self._tax_shortfall_carryover = 0.0
 
             # ── 9. Compute net worth ──────────────────────────────────────
             invest_total = 0.0
@@ -1088,13 +1092,17 @@ class ProjectionEngine:
             - annual["expense_total"] - annual["tax_annual_est"]
         )
 
-        # Cashflow sanity check (should sum to 0)
-        # In = income_total + withdrawal_total + contrib_employer_match
-        # Out = expense_total + tax_annual_est + contrib_total
-        annual["cashflow_check"] = round(
-            annual["income_total"] + annual.get("contrib_employer_match", 0.0) + annual["withdrawal_total"]
-            - annual["expense_total"] - annual["tax_annual_est"] - annual["contrib_total"], 2
-        )
+        # Cashflow sanity check (should land near 0; allow rounding drift).
+        # Employer match is an inflow because contrib_total includes it as a deposit.
+        annual["cashflow_check"] = (
+            annual["income_total"]
+            + annual["withdrawal_total"]
+            + annual.get("contrib_employer_match", 0.0)
+            - annual["expense_total"]
+            - annual["tax_annual_est"]
+            - annual["contrib_total"]
+        ).round(2)
+        annual["cashflow_check_ok"] = annual["cashflow_check"].abs() <= CASHFLOW_CHECK_TOLERANCE
 
         return annual
 

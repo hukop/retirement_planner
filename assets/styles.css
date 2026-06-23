@@ -425,6 +425,95 @@ body {
   pointer-events: none;
 }
 
+/* Cashflow check panel */
+.cashflow-check-message {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.cashflow-check-message.ok {
+  color: var(--accent-green);
+  background: rgba(52, 211, 153, 0.08);
+  border-color: rgba(52, 211, 153, 0.22);
+}
+
+.cashflow-check-message.fail {
+  color: var(--accent-red);
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.24);
+}
+
+.cashflow-check-details {
+  margin-top: 18px;
+}
+
+.cashflow-check-table-title {
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.cashflow-check-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.cashflow-check-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.cashflow-check-table th,
+.cashflow-check-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cashflow-check-table th:first-child,
+.cashflow-check-table td:first-child {
+  text-align: left;
+}
+
+.cashflow-check-table th {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.cashflow-check-table td {
+  color: var(--text-secondary);
+}
+
+.cashflow-check-table tr:last-child td {
+  border-bottom: none;
+}
+
+.cashflow-check-diff {
+  color: var(--accent-red) !important;
+  font-weight: 700;
+}
+
+.cashflow-check-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* =========================================================================
    6. Form Inputs
    ========================================================================= */
