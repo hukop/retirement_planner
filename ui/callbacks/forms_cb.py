@@ -238,7 +238,7 @@ def register_forms_callbacks(app: dash.Dash):
     @app.callback(
         Output("profile-summary-container", "children"),
         Input("profile-store", "data"),
-        prevent_initial_call=False
+        prevent_initial_call=True
     )
     def update_profile_summary(profile_data):
         if not profile_data:
@@ -247,6 +247,7 @@ def register_forms_callbacks(app: dash.Dash):
         from ui.pages.profile import _profile_summary
         profile = PlanProfile.from_dict(profile_data)
         return _profile_summary(profile)
+
 
 
     # ═══════════════════════════════════════════════════════════════════════

@@ -1,0 +1,202 @@
+{
+  "self_person": {
+    "name": "You",
+    "life_expectancy": 90,
+    "ss_monthly_benefit": 3200,
+    "ss_claiming_age": 67,
+    "birth_year": 1979,
+    "birth_month": 3,
+    "retirement_year": 2030
+  },
+  "spouse": {
+    "name": "Spouse",
+    "life_expectancy": 92,
+    "ss_monthly_benefit": 2600,
+    "ss_claiming_age": 67,
+    "birth_year": 1988,
+    "birth_month": 12,
+    "retirement_year": 2030
+  },
+  "plan_name": "Retire at 50",
+  "filing_status": "married_jointly",
+  "inflation_rate_pct": 3,
+  "incomes": [
+    {
+      "name": "Your Salary",
+      "owner": "self",
+      "annual_amount": 185000,
+      "annual_raise_pct": 2,
+      "start_age": 0,
+      "end_age": 0
+    },
+    {
+      "name": "Spouse Salary",
+      "owner": "spouse",
+      "annual_amount": 185000,
+      "annual_raise_pct": 2,
+      "start_age": 0,
+      "end_age": 0
+    }
+  ],
+  "expenses": [
+    {
+      "name": "Housing",
+      "category": "housing",
+      "monthly_amount": 3000,
+      "retirement_factor": 1,
+      "inflation_adjusted": true
+    },
+    {
+      "name": "Healthcare",
+      "category": "healthcare",
+      "monthly_amount": 100,
+      "retirement_factor": 10,
+      "inflation_adjusted": true
+    },
+    {
+      "name": "Other",
+      "category": "other",
+      "monthly_amount": 4000,
+      "retirement_factor": 1,
+      "inflation_adjusted": true
+    }
+  ],
+  "one_time_expenses": [
+    {
+      "name": "Roof",
+      "amount": 50000,
+      "year": 2026,
+      "inflation_adjusted": true
+    },
+    {
+      "name": "Windows",
+      "amount": 100000,
+      "year": 2027,
+      "inflation_adjusted": true
+    },
+    {
+      "name": "Siding",
+      "amount": 100000,
+      "year": 2030,
+      "inflation_adjusted": true
+    },
+    {
+      "name": "Kitchen remodel",
+      "amount": 50000,
+      "year": 2032,
+      "inflation_adjusted": true
+    },
+    {
+      "name": "Deck",
+      "amount": 150000,
+      "year": 2034,
+      "inflation_adjusted": true
+    }
+  ],
+  "accounts": [
+    {
+      "name": "IRA",
+      "account_type": "trad_ira",
+      "owner": "self",
+      "balance": 1380000,
+      "annual_return_pct": 8,
+      "volatility_pct": 15,
+      "annual_contribution": 23000,
+      "cost_basis": 0,
+      "employer_match": 0
+    },
+    {
+      "name": "Spouse 401(k)",
+      "account_type": "401k",
+      "owner": "spouse",
+      "balance": 300000,
+      "annual_return_pct": 7,
+      "volatility_pct": 15,
+      "annual_contribution": 24500,
+      "cost_basis": 0,
+      "employer_match": 0
+    },
+    {
+      "name": "Roth IRA",
+      "account_type": "roth_ira",
+      "owner": "self",
+      "balance": 6000,
+      "annual_return_pct": 7,
+      "volatility_pct": 15,
+      "annual_contribution": 24500,
+      "cost_basis": 0,
+      "employer_match": 0
+    },
+    {
+      "name": "Spouse Roth IRA",
+      "account_type": "roth_ira",
+      "owner": "spouse",
+      "balance": 10000,
+      "annual_return_pct": 7,
+      "volatility_pct": 15,
+      "annual_contribution": 0,
+      "cost_basis": 0,
+      "employer_match": 0
+    },
+    {
+      "name": "Brokerage",
+      "account_type": "brokerage",
+      "owner": "self",
+      "balance": 1150000,
+      "annual_return_pct": 4,
+      "volatility_pct": 0,
+      "annual_contribution": 24000,
+      "cost_basis": 300000,
+      "employer_match": 0
+    },
+    {
+      "name": "HSA",
+      "account_type": "hsa",
+      "owner": "self",
+      "balance": 30000,
+      "annual_return_pct": 7,
+      "volatility_pct": 15,
+      "annual_contribution": 8300,
+      "cost_basis": 0,
+      "employer_match": 0
+    }
+  ],
+  "properties": [
+    {
+      "name": "Primary Home",
+      "property_type": "primary",
+      "current_value": 1200000,
+      "appreciation_rate_pct": 2,
+      "mortgage_balance": 0,
+      "monthly_payment": 0,
+      "mortgage_rate_pct": 0,
+      "years_remaining": 0,
+      "monthly_rental_income": 0,
+      "monthly_expenses": 0,
+      "rental_inflation_rate_pct": 3
+    },
+    {
+      "name": "ADUs",
+      "property_type": "rental",
+      "current_value": 0,
+      "appreciation_rate_pct": 3,
+      "mortgage_balance": 0,
+      "monthly_payment": 0,
+      "mortgage_rate_pct": 0,
+      "years_remaining": 0,
+      "monthly_rental_income": 4900,
+      "monthly_expenses": 600,
+      "rental_inflation_rate_pct": 2
+    }
+  ],
+  "monte_carlo": {
+    "num_trials": 2500,
+    "mean_return_pct": 7,
+    "std_dev_pct": 15,
+    "bond_mean_return_pct": 4,
+    "bond_std_dev_pct": 5,
+    "random_seed": null,
+    "adaptive_spending": true,
+    "live_updates": true
+  }
+}

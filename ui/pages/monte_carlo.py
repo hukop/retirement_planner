@@ -503,18 +503,19 @@ def _results_section(result: MonteCarloResult, retire_yr: int) -> html.Div:
     return html.Div([
         html.Div(style={"height": "24px"}),
 
-        # Fan chart (full width) — separate container for live updates
+        # Fan chart
         section_card(
             "Net Worth Downside Risk Chart",
-            children=[dcc.Graph(id="mc-fan-chart", figure=fan_fig, config={"displayModeBar": False})],
+            children=[dcc.Graph(id="mc-fan-chart", figure=fan_fig,
+                                config={"displayModeBar": False})],
         ),
         html.Div(style={"height": "16px"}),
 
-        # KPI cards — separate container for live updates
+        # KPI cards
         html.Div(id="mc-kpi-cards", children=four_col(*_kpi_card_values(result))),
         html.Div(style={"height": "16px"}),
 
-        # Distribution Row: Terminal NW + Ruin Year — these don't update during live runs
+        # Distribution Row: Terminal NW + Ruin Year
         two_col(
             section_card(
                 "Terminal Net Worth Distribution",
@@ -594,9 +595,6 @@ def layout(
     return html.Div(
         [
             control_panel,
-
-            dcc.Interval(id="mc-live-interval", interval=1500, disabled=True),
-
             html.Div(id="mc-results-area", children=results_content),
         ]
     )

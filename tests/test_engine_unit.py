@@ -961,7 +961,7 @@ class TestProjectionEngineScenarios(unittest.TestCase):
                     mortgage_balance=0,
                     monthly_rental_income=10_000,
                     monthly_expenses=0,
-                    annual_appreciation_pct=0.0,
+                    appreciation_rate_pct=0.0,
                 ),
             ],
         )

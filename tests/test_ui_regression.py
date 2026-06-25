@@ -40,11 +40,31 @@ def _safe_click(driver, element):
     driver.execute_script("arguments[0].click();", element)
 
 
+def _js_fill_input(driver, element, value):
+    """Scroll element into view and set its value via JS (bypasses interactability issues)."""
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block: 'center'}); arguments[0].value = arguments[1];",
+        element, value,
+    )
+    time.sleep(0.2)
+    driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", element)
+    driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", element)
+    time.sleep(0.1)
+
+
+def _scroll_and_send_keys(element, text, driver=None):
+    """Scroll element into view then send keys."""
+    driver = driver or element.parent
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+    time.sleep(0.3)
+    element.send_keys(text)
+
+
 def _select_option(driver, select_element, value):
     """Select an option by value and trigger change event."""
     from selenium.webdriver.support.ui import Select
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", select_element)
-    time.sleep(0.2)
+    time.sleep(0.3)
     sel = Select(select_element)
     sel.select_by_value(value)
     # Trigger change event for clientside callbacks
@@ -105,6 +125,11 @@ def test_re_002_rental_fields_visible_after_type_change(dash_duo):
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial_items + 1
     )
 
+    # Scroll new item into view before interacting
+    new_items = dash_duo.find_elements(".dynamic-item")
+    dash_duo.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", new_items[-1])
+    time.sleep(0.3)
+
     # Find the type dropdown for the new property and change it to rental
     type_selects = dash_duo.find_elements("select[id*='prop-type']")
     assert len(type_selects) > 0, "No property type dropdowns found"
@@ -135,12 +160,15 @@ def test_re_003_rental_income_saved_and_reloaded(dash_duo):
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial_items + 1
     )
 
+    # Scroll new item into view before interacting
+    new_items = dash_duo.find_elements(".dynamic-item")
+    dash_duo.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", new_items[-1])
+    time.sleep(0.3)
+
     # Name it
     name_inputs = dash_duo.find_elements("input[id*='prop-name']")
     assert len(name_inputs) > 0, "No property name inputs found"
-    name_inputs[-1].send_keys("Test Rental")
-    name_inputs[-1].send_keys(Keys.TAB)
-    time.sleep(0.3)
+    _js_fill_input(dash_duo.driver, name_inputs[-1], "Test Rental")
 
     # Switch to rental
     type_selects = dash_duo.find_elements("select[id*='prop-type']")
@@ -156,9 +184,7 @@ def test_re_003_rental_income_saved_and_reloaded(dash_duo):
     # Enter rent
     rent_inputs = dash_duo.find_elements("input[id*='prop-rent-inc']")
     assert len(rent_inputs) > 0, "No rent inputs found"
-    rent_inputs[-1].send_keys("3500")
-    rent_inputs[-1].send_keys(Keys.TAB)
-    time.sleep(0.3)
+    _js_fill_input(dash_duo.driver, rent_inputs[-1], "3500")
 
     # Save (CORRECTED ID: real-estate-save-btn with hyphen)
     _wait_and_click(dash_duo, "#real-estate-save-btn")
@@ -181,15 +207,6 @@ def test_re_003_rental_income_saved_and_reloaded(dash_duo):
 
 from datetime import date as _reg_date
 
-def _scroll_and_send(dash_duo, element, text):
-    """Scroll element into view then send keys."""
-    dash_duo.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-    time.sleep(0.3)
-    element.send_keys(Keys.CONTROL + "a")
-    element.send_keys(Keys.BACKSPACE)
-    element.send_keys(text)
-    element.send_keys(Keys.TAB)
-
 def test_profile_001_low_retirement_age_persists(dash_duo):
     """Regression: retirement age of 45 should be accepted and survive refresh."""
     _cur = _reg_date.today().year
@@ -198,11 +215,11 @@ def test_profile_001_low_retirement_age_persists(dash_duo):
     # Set birth year so retirement at age 45 means retirement year = birth_year + 45
     # Age 50 -> birth_year = current_year - 50, retirement_year = birth_year + 45 = current_year - 5
     birth_in = dash_duo.find_element("#profile-self-birth-year")
-    _scroll_and_send(dash_duo, birth_in, str(_cur - 50))
+    _js_fill_input(dash_duo.driver, birth_in, str(_cur - 50))
     time.sleep(0.5)
 
     ret_in = dash_duo.find_element("#profile-self-retirement-year")
-    _scroll_and_send(dash_duo, ret_in, str(_cur - 50 + 45))
+    _js_fill_input(dash_duo.driver, ret_in, str(_cur - 50 + 45))
     time.sleep(0.5)
 
     # Auto-save triggers on input changes; wait for store to update
@@ -223,11 +240,11 @@ def test_profile_002_spouse_low_retirement_age_persists(dash_duo):
     # Set birth year so retirement at age 45 means retirement year = birth_year + 45
     # Age 50 -> birth_year = current_year - 50
     birth_in = dash_duo.find_element("#profile-spouse-birth-year")
-    _scroll_and_send(dash_duo, birth_in, str(_cur - 50))
+    _js_fill_input(dash_duo.driver, birth_in, str(_cur - 50))
     time.sleep(0.5)
 
     ret_in = dash_duo.find_element("#profile-spouse-retirement-year")
-    _scroll_and_send(dash_duo, ret_in, str(_cur - 50 + 45))
+    _js_fill_input(dash_duo.driver, ret_in, str(_cur - 50 + 45))
     time.sleep(0.5)
 
     # Auto-save triggers on input changes; wait for store to update
@@ -254,18 +271,18 @@ def test_income_001_add_and_save(dash_duo):
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial + 1
     )
 
+    # Scroll new item into view
+    new_items = dash_duo.find_elements(".dynamic-item")
+    dash_duo.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", new_items[-1])
+    time.sleep(0.3)
+
     name_inputs = dash_duo.find_elements("input[id*='income-name']")
     assert len(name_inputs) > 0, "No income name inputs found"
-    name_inputs[-1].send_keys(Keys.CONTROL + "a")
-    name_inputs[-1].send_keys("Consulting")
-    name_inputs[-1].send_keys(Keys.TAB)
+    _js_fill_input(dash_duo.driver, name_inputs[-1], "Consulting")
 
     amt_inputs = dash_duo.find_elements("input[id*='income-amount']")
     assert len(amt_inputs) > 0, "No income amount inputs found"
-    amt_inputs[-1].send_keys(Keys.CONTROL + "a")
-    amt_inputs[-1].send_keys("5000")
-    amt_inputs[-1].send_keys(Keys.TAB)
-    time.sleep(0.3)
+    _js_fill_input(dash_duo.driver, amt_inputs[-1], "5000")
 
     _wait_and_click(dash_duo, "#income-save-btn")
     time.sleep(1.5)  # Wait for save to complete
@@ -324,12 +341,15 @@ def test_expense_001_add_and_save(dash_duo):
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial + 1
     )
 
+    # Scroll new item into view
+    new_items = dash_duo.find_elements(".dynamic-item")
+    dash_duo.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", new_items[-1])
+    time.sleep(0.3)
+
     # Expenses don't have a name field - use category and amount
     amt_inputs = dash_duo.find_elements("input[id*='expense-amount']")
     assert len(amt_inputs) > 0, "No expense amount inputs found"
-    amt_inputs[-1].send_keys("800")
-    amt_inputs[-1].send_keys(Keys.TAB)
-    time.sleep(0.3)
+    _js_fill_input(dash_duo.driver, amt_inputs[-1], "800")
 
     _wait_and_click(dash_duo, "#expenses-save-btn")
     time.sleep(1.5)  # Wait for save to complete
@@ -399,16 +419,18 @@ def test_onetime_001_add_and_save(dash_duo):
         lambda d: len(d.find_elements(By.CSS_SELECTOR, "div[id*='otex-item']")) == initial + 1
     )
 
+    # Scroll new item into view
+    new_items = dash_duo.find_elements("div[id*='otex-item']")
+    dash_duo.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", new_items[-1])
+    time.sleep(0.3)
+
     name_inputs = dash_duo.find_elements("input[id*='otex-name']")
     assert len(name_inputs) > 0, "No one-time expense name inputs found"
-    name_inputs[-1].send_keys("World Trip")
-    name_inputs[-1].send_keys(Keys.TAB)
+    _js_fill_input(dash_duo.driver, name_inputs[-1], "World Trip")
 
     amt_inputs = dash_duo.find_elements("input[id*='otex-amount']")
     assert len(amt_inputs) > 0, "No one-time expense amount inputs found"
-    amt_inputs[-1].send_keys("25000")
-    amt_inputs[-1].send_keys(Keys.TAB)
-    time.sleep(0.3)
+    _js_fill_input(dash_duo.driver, amt_inputs[-1], "25000")
 
     _wait_and_click(dash_duo, "#expenses-save-btn")
     time.sleep(1.5)  # Wait for save to complete

@@ -115,40 +115,37 @@ def register_dynamic_callbacks(app: dash.Dash):
         prevent_initial_call=False
     )
 
-    # ── Settings State Sync (Density & Theme) ──
-    # Unified callback to avoid Dash circular dependency errors and combine classes
     app.clientside_callback(
         """
         function(density_drop, theme_drop, density_store, theme_store) {
             const ctx = dash_clientside.callback_context;
+            const NO_UPDATE = window.dash_clientside.no_update;
 
-            // Determine current actual values (fallback to defaults)
-            let current_density = density_store || density_drop || "comfortable";
-            let current_theme = theme_store || theme_drop || "classic";
+            // Determine effective values
+            let current_density = density_drop || density_store || "comfortable";
+            let current_theme   = theme_drop   || theme_store   || "classic";
 
             if (ctx.triggered && ctx.triggered.length) {
                 const triggered_id = ctx.triggered[0].prop_id;
-
-                if (triggered_id === 'layout-density-select.value') {
-                    current_density = density_drop || "comfortable";
-                } else if (triggered_id === 'density-store.data') {
-                    current_density = density_store || "comfortable";
-                } else if (triggered_id === 'layout-theme-select.value') {
-                    current_theme = theme_drop || "classic";
-                } else if (triggered_id === 'theme-store.data') {
-                    current_theme = theme_store || "classic";
-                }
+                if      (triggered_id === 'layout-density-select.value') current_density = density_drop || "comfortable";
+                else if (triggered_id === 'density-store.data')          current_density = density_store || "comfortable";
+                else if (triggered_id === 'layout-theme-select.value')   current_theme   = theme_drop   || "classic";
+                else if (triggered_id === 'theme-store.data')            current_theme   = theme_store  || "classic";
             }
 
             const combined_class = "density-" + current_density + " theme-" + current_theme;
 
-            // Return values for (density_drop, density_store, theme_drop, theme_store, app-shell_class)
-            // But only update stores/dropdowns if they don't match our current state
-            const r_density_drop = (density_drop !== current_density) ? current_density : window.dash_clientside.no_update;
-            const r_density_store = (density_store !== current_density) ? current_density : window.dash_clientside.no_update;
+            // Only push updates for values that actually changed — prevents React loop
+            const r_density_drop  = (density_drop  !== current_density) ? current_density : NO_UPDATE;
+            const r_density_store = (density_store !== current_density) ? current_density : NO_UPDATE;
+            const r_theme_drop    = (theme_drop    !== current_theme)   ? current_theme   : NO_UPDATE;
+            const r_theme_store   = (theme_store   !== current_theme)   ? current_theme   : NO_UPDATE;
 
-            const r_theme_drop = (theme_drop !== current_theme) ? current_theme : window.dash_clientside.no_update;
-            const r_theme_store = (theme_store !== current_theme) ? current_theme : window.dash_clientside.no_update;
+            // If nothing changed at all, skip re-rendering the shell too
+            if (r_density_drop === NO_UPDATE && r_density_store === NO_UPDATE &&
+                r_theme_drop   === NO_UPDATE && r_theme_store   === NO_UPDATE) {
+                return [NO_UPDATE, NO_UPDATE, NO_UPDATE, NO_UPDATE, NO_UPDATE];
+            }
 
             return [r_density_drop, r_density_store, r_theme_drop, r_theme_store, combined_class];
         }
@@ -162,82 +159,62 @@ def register_dynamic_callbacks(app: dash.Dash):
         Input("layout-theme-select", "value"),
         Input("density-store", "data"),
         Input("theme-store", "data"),
-        prevent_initial_call=False
+        prevent_initial_call=True
     )
-    # ── Real-time Header Sync (Updates title/subtitle as you type) ──
+
+    # ── Real-time Header Sync ──
+    # Functions are defined in assets/clientside.js to avoid duplicate registration.
+    from dash import ClientsideFunction
+
     # Income
     app.clientside_callback(
-        """
-        function(name, amt) {
-            const display_name = name || "New Income Source";
-            const display_amt = "$" + (Number(amt) || 0).toLocaleString() + " / yr";
-            return [display_name, display_amt];
-        }
-        """,
-        [Output({"type": "income-item-title-text", "index": dash.MATCH}, "children"),
+        ClientsideFunction(namespace="clientside", function_name="sync_income_header"),
+        [Output({"type": "income-item-title-text",    "index": dash.MATCH}, "children"),
          Output({"type": "income-item-subtitle-text", "index": dash.MATCH}, "children")],
-        [Input({"type": "income-name", "index": dash.MATCH}, "value"),
-         Input({"type": "income-amount", "index": dash.MATCH}, "value")]
+        [Input({"type": "income-name",   "index": dash.MATCH}, "value"),
+         Input({"type": "income-amount", "index": dash.MATCH}, "value")],
+        prevent_initial_call=False,
     )
 
     # Recurring Expense
     app.clientside_callback(
-        """
-        function(name, amt, cat) {
-            const display_name = name || (cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : "Expense");
-            const display_amt = "$" + (Number(amt) || 0).toLocaleString() + " / mo";
-            return [display_name, display_amt];
-        }
-        """,
-        [Output({"type": "expense-item-title-text", "index": dash.MATCH}, "children"),
+        ClientsideFunction(namespace="clientside", function_name="sync_expense_header"),
+        [Output({"type": "expense-item-title-text",    "index": dash.MATCH}, "children"),
          Output({"type": "expense-item-subtitle-text", "index": dash.MATCH}, "children")],
-        [Input({"type": "expense-name", "index": dash.MATCH}, "value"),
-         Input({"type": "expense-amount", "index": dash.MATCH}, "value"),
-         Input({"type": "expense-category", "index": dash.MATCH}, "value")]
+        [Input({"type": "expense-name",     "index": dash.MATCH}, "value"),
+         Input({"type": "expense-amount",   "index": dash.MATCH}, "value"),
+         Input({"type": "expense-category", "index": dash.MATCH}, "value")],
+        prevent_initial_call=False,
     )
 
     # One-time Expense
     app.clientside_callback(
-        """
-        function(name, amt, yr) {
-            const display_name = name || "New Expense";
-            const display_amt = "$" + (Number(amt) || 0).toLocaleString() + " in " + (yr || 2030);
-            return [display_name, display_amt];
-        }
-        """,
-        [Output({"type": "otex-item-title-text", "index": dash.MATCH}, "children"),
+        ClientsideFunction(namespace="clientside", function_name="sync_otex_header"),
+        [Output({"type": "otex-item-title-text",    "index": dash.MATCH}, "children"),
          Output({"type": "otex-item-subtitle-text", "index": dash.MATCH}, "children")],
-        [Input({"type": "otex-name", "index": dash.MATCH}, "value"),
+        [Input({"type": "otex-name",   "index": dash.MATCH}, "value"),
          Input({"type": "otex-amount", "index": dash.MATCH}, "value"),
-         Input({"type": "otex-year", "index": dash.MATCH}, "value")]
+         Input({"type": "otex-year",   "index": dash.MATCH}, "value")],
+        prevent_initial_call=False,
     )
 
     # Investment Account
     app.clientside_callback(
-        """
-        function(name, bal) {
-            const display_name = name || "New Account";
-            const display_amt = "$" + (Number(bal) || 0).toLocaleString();
-            return [display_name, display_amt];
-        }
-        """,
-        [Output({"type": "account-item-title-text", "index": dash.MATCH}, "children"),
+        ClientsideFunction(namespace="clientside", function_name="sync_account_header"),
+        [Output({"type": "account-item-title-text",    "index": dash.MATCH}, "children"),
          Output({"type": "account-item-subtitle-text", "index": dash.MATCH}, "children")],
-        [Input({"type": "acc-name", "index": dash.MATCH}, "value"),
-         Input({"type": "acc-balance", "index": dash.MATCH}, "value")]
+        [Input({"type": "acc-name",    "index": dash.MATCH}, "value"),
+         Input({"type": "acc-balance", "index": dash.MATCH}, "value")],
+        prevent_initial_call=False,
     )
 
     # Real Estate Property
     app.clientside_callback(
-        """
-        function(name, val) {
-            const display_name = name || "New Property";
-            const display_amt = "Valued at $" + (Number(val) || 0).toLocaleString();
-            return [display_name, display_amt];
-        }
-        """,
-        [Output({"type": "property-item-title-text", "index": dash.MATCH}, "children"),
+        ClientsideFunction(namespace="clientside", function_name="sync_property_header"),
+        [Output({"type": "property-item-title-text",    "index": dash.MATCH}, "children"),
          Output({"type": "property-item-subtitle-text", "index": dash.MATCH}, "children")],
-        [Input({"type": "prop-name", "index": dash.MATCH}, "value"),
-         Input({"type": "prop-value", "index": dash.MATCH}, "value")]
+        [Input({"type": "prop-name",  "index": dash.MATCH}, "value"),
+         Input({"type": "prop-value", "index": dash.MATCH}, "value")],
+        prevent_initial_call=False,
     )
+

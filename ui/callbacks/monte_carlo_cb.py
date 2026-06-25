@@ -47,12 +47,12 @@ _RUN_BTN_ENABLED_STYLE = {"width": "200px", "fontSize": "14px", "fontWeight": "7
 
 def _reset_progress(set_progress):
     """Push initial "running" UI state."""
-    set_progress((0, "0%", "Starting…", _RUNNING_STYLE, True, _RUN_BTN_DISABLED_STYLE, False))
+    set_progress((0, "0%", "Starting…", _RUNNING_STYLE, True, _RUN_BTN_DISABLED_STYLE))
 
 
 def _idle_progress(set_progress):
     """Push final "idle" UI state."""
-    set_progress((0, "0%", "", _HIDDEN_STYLE, False, _RUN_BTN_ENABLED_STYLE, True))
+    set_progress((0, "0%", "", _HIDDEN_STYLE, False, _RUN_BTN_ENABLED_STYLE))
 
 
 # ── Run Simulation (background callback with live progress) ───────────
@@ -75,7 +75,6 @@ def _idle_progress(set_progress):
         Output("mc-progress-container", "style"),   # visibility
         Output("btn-run-monte-carlo", "disabled"),  # button disabled
         Output("btn-run-monte-carlo", "style"),     # button style
-        Output("mc-live-interval", "disabled"),     # live interval
     ],
     background=True,
     prevent_initial_call=True,
@@ -116,7 +115,7 @@ def run_simulation(
             pct_int  = int(current / total * 100)
             pct_str  = f"{pct_int}%"
             label    = f"Trial {current:,} of {total:,}"
-            set_progress((pct_int, pct_str, label, _RUNNING_STYLE, True, _RUN_BTN_DISABLED_STYLE, False))
+            set_progress((pct_int, pct_str, label, _RUNNING_STYLE, True, _RUN_BTN_DISABLED_STYLE))
 
         # ── Intermediate results bridge ───────────────────────────────
         retire_yr = profile.retirement_year_self
@@ -141,11 +140,11 @@ def run_simulation(
         )
         data = monte_carlo_result_to_dict(result)
 
-        # Clear intermediate data now that final result is ready
+        # ── CRITICAL: Disable the live-interval BEFORE storing the final
+        # result so no stale dash.Patch() can race with mc-results-area's
+        # fresh figure.
         _cache.delete(_INTERMEDIATE_KEY)
         _cache.set(_INTERMEDIATE_READY_KEY, False)
-
-        # Push final "idle" UI state
         _idle_progress(set_progress)
 
         pct_str = f"{result.success_rate * 100:.1f}%"
@@ -200,65 +199,36 @@ def register_monte_carlo_callbacks(app: dash.Dash) -> None:
 
         profile_data = profile_data or {}
         existing_mc = profile_data.get("monte_carlo", {})
+
+        new_num_trials = int(num_trials_value)
+        new_adaptive   = bool(adaptive_spending_value and "on" in adaptive_spending_value)
+        new_live       = bool(live_updates_value and "on" in live_updates_value)
+
+        # Skip the write if nothing actually changed — prevents spurious
+        # profile-store updates (and downstream React loops) at simulation end.
+        if (
+            existing_mc.get("num_trials") == new_num_trials
+            and existing_mc.get("adaptive_spending") == new_adaptive
+            and existing_mc.get("live_updates") == new_live
+        ):
+            raise dash.exceptions.PreventUpdate
+
         profile_data["monte_carlo"] = {
             **existing_mc,
-            "num_trials": int(num_trials_value),
-            "adaptive_spending": bool(adaptive_spending_value and "on" in adaptive_spending_value),
-            "live_updates": bool(live_updates_value and "on" in live_updates_value),
+            "num_trials": new_num_trials,
+            "adaptive_spending": new_adaptive,
+            "live_updates": new_live,
         }
         return profile_data
 
 
-    # ── 2. Live update: rebuild only the fan chart figure (no full page refresh) ──
-    @app.callback(
-        Output("mc-fan-chart", "figure", allow_duplicate=True),
-        Input("mc-live-interval", "n_intervals"),
-        State("profile-store", "data"),
-        prevent_initial_call=True,
-    )
-    def live_update_fan_chart(n_intervals, profile_data):
-        ready = _cache.get(_INTERMEDIATE_READY_KEY, False)
-        if not ready:
-            raise dash.exceptions.PreventUpdate
 
-        data = _cache.get(_INTERMEDIATE_KEY)
-        if not data:
-            raise dash.exceptions.PreventUpdate
-
-        # Consume snapshot so next tick waits for fresh data
-        _cache.set(_INTERMEDIATE_READY_KEY, False)
-
-        from engine.monte_carlo import MonteCarloResult
-        import dash
-
-        data.pop("_retire_yr", None)
-        result = MonteCarloResult(**data)
-
-        pcts = result.net_worth_percentiles
-        p5   = [row[0] for row in pcts]
-        p10  = [row[1] for row in pcts]
-        p50  = [row[3] for row in pcts]
-
-        patched_fig = dash.Patch()
-        
-        # Trace 0: 5th-10th %ile
-        patched_fig["data"][0]["y"] = p10 + p5[::-1]
-        
-        # Trace 1: 10th-50th %ile
-        patched_fig["data"][1]["y"] = p50 + p10[::-1]
-        
-        # Trace 2: 10th %ile line
-        patched_fig["data"][2]["y"] = p10
-        
-        # Trace 3: 5th %ile line
-        patched_fig["data"][3]["y"] = p5
-        
-        # Trace 4: Median line
-        patched_fig["data"][4]["y"] = p50
-
-        return patched_fig
-
-    # ── 3. Render final results (full build with all charts) ─────────────
+    # NOTE: Live fan chart updates have been removed to avoid a React
+    # "Maximum update depth exceeded" loop caused by the race between
+    # live-update interval ticks and the final results callback replacing
+    # the entire mc-results-area (which includes a fresh mc-fan-chart).
+    # The progress bar already provides live feedback during simulation.
+    # ── 2. Render final results (full build with all charts) ─────────────
     @app.callback(
         Output("mc-results-area", "children", allow_duplicate=True),
         Input("monte-carlo-store", "data"),

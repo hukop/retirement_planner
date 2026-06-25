@@ -118,10 +118,10 @@ def test_002_comprehensive_person_profile_sync(dash_duo, p_type):
     WebDriverWait(dash_duo.driver, 10).until(
         lambda d: d.find_element(By.ID, f"profile-{p_type}-name").get_attribute("value") == data["name"]
     )
-    assert dash_duo.find_element(By.ID, f"profile-{p_type}-birth-year").get_attribute("value") == data["birth_year"]
-    assert dash_duo.find_element(By.ID, f"profile-{p_type}-birth-month").get_attribute("value") == data["birth_month"]
-    assert dash_duo.find_element(By.ID, f"profile-{p_type}-retirement-year").get_attribute("value") == data["retirement_year"]
-    assert dash_duo.find_element(By.ID, f"profile-{p_type}-ss-benefit").get_attribute("value") == data["ss"]
+    assert dash_duo.find_element(f"#profile-{p_type}-birth-year").get_attribute("value") == data["birth_year"]
+    assert dash_duo.find_element(f"#profile-{p_type}-birth-month").get_attribute("value") == data["birth_month"]
+    assert dash_duo.find_element(f"#profile-{p_type}-retirement-year").get_attribute("value") == data["retirement_year"]
+    assert dash_duo.find_element(f"#profile-{p_type}-ss-benefit").get_attribute("value") == data["ss"]
 
 def test_003_dynamic_account_management(dash_duo):
     """Test Add -> Edit -> Save -> Remove workflow for dynamic accounts."""
@@ -140,9 +140,13 @@ def test_003_dynamic_account_management(dash_duo):
         lambda d: len(d.find_elements(By.CLASS_NAME, "dynamic-item")) == initial_items + 1
     )
 
-    # Name the new account
-    all_names = dash_duo.find_elements("input[id*='acc-name']")
-    all_names[-1].send_keys("Test Account Z")
+    # Name the new account — wait for element to be interactable
+    from selenium.webdriver.support import expected_conditions as EC
+    last_name = WebDriverWait(dash_duo.driver, 5).until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, "input[id*='acc-name']:last-of-type"))
+    )
+    dash_duo.driver.execute_script("arguments[0].scrollIntoView({block: 'center'}); arguments[0].value = arguments[1];", last_name, "Test Account Z")
+    last_name.send_keys(Keys.TAB)
 
     # Save
     btn_save = dash_duo.find_element("#investments-save-btn")

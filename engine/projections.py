@@ -543,15 +543,15 @@ class ProjectionEngine:
             monthly_surplus = max(0.0, cashflow_income - expense_total - monthly_tax_est)
 
             # Deposit surplus into the first taxable account (brokerage/savings)
+            month_surplus_deposit = 0.0
             if monthly_surplus > 0:
                 for s in ordered_portfolio:
                     if s.tax_treatment == "taxable":
                         s.balance += monthly_surplus
                         s.cost_basis += monthly_surplus
                         s.total_contributed += monthly_surplus
-                        month_contrib += monthly_surplus
+                        month_surplus_deposit = monthly_surplus
                         break
-
             if not fast_path:
                 wd_row: dict = {
                     "withdrawal_ordinary": 0.0,
@@ -563,6 +563,32 @@ class ProjectionEngine:
                 }
             else:
                 wd_gains = wd_rmd = wd_total = 0.0
+
+            # Working-year deficit: withdraw from taxable savings to fund
+            # the gap (e.g. a large one-time expense that exceeds take-home).
+            # This is symmetric to the surplus deposit above.
+            if not both_retired and monthly_need > 0:
+                remaining_wd = monthly_need
+                w_gains_wd = w_total_wd = 0.0
+                wd_by_acct_work = {}
+                for s in ordered_portfolio:
+                    if remaining_wd <= 0:
+                        break
+                    wr = s.withdraw(remaining_wd)
+                    w_gains_wd += wr.capital_gain
+                    w_total_wd += wr.withdrawn
+                    k = f"withdrawal_{_slugify(wr.account_name)}"
+                    wd_by_acct_work[k] = wd_by_acct_work.get(k, 0.0) + wr.withdrawn
+                    remaining_wd -= wr.withdrawn
+                if fast_path:
+                    wd_gains += w_gains_wd
+                    wd_total  += w_total_wd
+                else:
+                    wd_row["withdrawal_gains"]  += w_gains_wd
+                    wd_row["withdrawal_total"]  += w_total_wd
+                    wd_row["withdrawal_shortfall"] = round(max(0, remaining_wd), 2)
+                    for k, v in wd_by_acct_work.items():
+                        wd_row[k] = wd_row.get(k, 0.0) + round(v, 2)
 
             # Accumulate cumulative net need for December's annual withdrawal
             if both_retired:
@@ -736,7 +762,9 @@ class ProjectionEngine:
                 **{k: round(v, 2) for k, v in exp.items()},
                 # Contributions & Growth
                 "contrib_total":   round(month_contrib, 2),
+                "contrib_employee": round(month_employee_contrib, 2),
                 "contrib_employer_match": round(month_employer_match, 2),
+                "contrib_surplus_deposit": round(month_surplus_deposit, 2),
                 "growth_total":    round(month_growth,  2),
                 # Withdrawals
                 **{k: round(v, 2) for k, v in wd_row.items()},
@@ -1093,14 +1121,20 @@ class ProjectionEngine:
         )
 
         # Cashflow sanity check (should land near 0; allow rounding drift).
-        # Employer match is an inflow because contrib_total includes it as a deposit.
+        # Identity:
+        #   income_total + withdrawals + employer_match
+        #   = expenses + taxes + employee_contributions + surplus_deposit
+        #
+        # contrib_total = employee_contrib + employer_match + surplus_deposit
+        # => contrib_employee + surplus_deposit = contrib_total - employer_match
         annual["cashflow_check"] = (
             annual["income_total"]
             + annual["withdrawal_total"]
             + annual.get("contrib_employer_match", 0.0)
             - annual["expense_total"]
             - annual["tax_annual_est"]
-            - annual["contrib_total"]
+            - annual.get("contrib_employee", 0.0)
+            - annual.get("contrib_surplus_deposit", 0.0)
         ).round(2)
         annual["cashflow_check_ok"] = annual["cashflow_check"].abs() <= CASHFLOW_CHECK_TOLERANCE
 
