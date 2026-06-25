@@ -13,36 +13,63 @@ recreated during navigation.
 from __future__ import annotations
 
 import json
-import dash
-from dash import Input, Output, State, clientside_callback
-import dash_bootstrap_components as dbc
-import diskcache
-
-from engine.models import PlanProfile
-from engine.monte_carlo import run_monte_carlo, monte_carlo_result_to_dict, MonteCarloResult
 
 # Shared cache for intermediate results (same cache dir as background manager)
 import os
 import platform
 
+import dash
+import dash_bootstrap_components as dbc
+import diskcache
+from dash import Input, Output, State, clientside_callback
+
+from engine.models import PlanProfile
+from engine.monte_carlo import (
+    MonteCarloResult,
+    monte_carlo_result_to_dict,
+    run_monte_carlo,
+)
+from ui.serialization import sanitize_for_dash_json
+
+
 def _get_base_cache_dir():
-    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _PROJECT_ROOT = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
     base = os.path.join(_PROJECT_ROOT, ".cache")
-    if os.name == "posix" and "microsoft" in platform.uname().release.lower() and base.startswith("/mnt/"):
+    if (
+        os.name == "posix"
+        and "microsoft" in platform.uname().release.lower()
+        and base.startswith("/mnt/")
+    ):
         return os.path.join("/tmp", "finance_planner_cache")
     return base
 
-_CACHE_DIR = os.environ.get("FINANCE_CACHE_DIR", os.path.join(_get_base_cache_dir(), "mc_intermediate"))
+
+_CACHE_DIR = os.environ.get(
+    "FINANCE_CACHE_DIR", os.path.join(_get_base_cache_dir(), "mc_intermediate")
+)
 os.makedirs(_CACHE_DIR, exist_ok=True)
 _cache = diskcache.Cache(_CACHE_DIR)
 _INTERMEDIATE_KEY = "mc_intermediate_result"
 _INTERMEDIATE_READY_KEY = "mc_intermediate_ready"
+_PLAN_PROFILE_KEY = "plan_profile"
 
 # Shared UI state constants
 _RUNNING_STYLE = {"display": "block", "marginTop": "16px"}
 _HIDDEN_STYLE = {"display": "none"}
-_RUN_BTN_DISABLED_STYLE = {"width": "200px", "fontSize": "14px", "fontWeight": "700", "opacity": "0.5"}
-_RUN_BTN_ENABLED_STYLE = {"width": "200px", "fontSize": "14px", "fontWeight": "700", "opacity": "1.0"}
+_RUN_BTN_DISABLED_STYLE = {
+    "width": "200px",
+    "fontSize": "14px",
+    "fontWeight": "700",
+    "opacity": "0.5",
+}
+_RUN_BTN_ENABLED_STYLE = {
+    "width": "200px",
+    "fontSize": "14px",
+    "fontWeight": "700",
+    "opacity": "1.0",
+}
 
 
 def _reset_progress(set_progress):
@@ -63,18 +90,20 @@ def _idle_progress(set_progress):
     ],
     inputs=dict(
         n_clicks=Input("btn-run-monte-carlo", "n_clicks"),
-        profile_data=State("profile-store",  "data"),
+        profile_data=State("profile-store", "data"),
         num_trials_input=State("mc-input-num-trials", "value"),
         live_updates_input=State("mc-input-live-updates", "value"),
         adaptive_spending_input=State("mc-input-adaptive-spending", "value"),
     ),
     progress=[
-        Output("mc-progress-bar",       "value"),   # 0-100
-        Output("mc-progress-pct",       "children"),# "42%"
-        Output("mc-progress-label",     "children"),# "Trial 420 of 1,000"
-        Output("mc-progress-container", "style"),   # visibility
-        Output("btn-run-monte-carlo", "disabled"),  # button disabled
-        Output("btn-run-monte-carlo", "style"),     # button style
+        Output("mc-progress-bar", "value"),  # 0-100
+        Output("mc-progress-pct", "children"),  # "42%"
+        Output(
+            "mc-progress-label", "children", allow_duplicate=True
+        ),  # "Trial 420 of 1,000"
+        Output("mc-progress-container", "style"),  # visibility
+        Output("btn-run-monte-carlo", "disabled", allow_duplicate=True),
+        Output("btn-run-monte-carlo", "style", allow_duplicate=True),
     ],
     background=True,
     prevent_initial_call=True,
@@ -98,7 +127,11 @@ def run_simulation(
     _cache.set(_INTERMEDIATE_READY_KEY, False)
 
     try:
-        profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
+        profile = (
+            PlanProfile.from_dict(profile_data)
+            if profile_data
+            else PlanProfile.sample()
+        )
 
         # Override num_trials from the dropdown if provided
         if num_trials_input:
@@ -112,16 +145,18 @@ def run_simulation(
 
         # ── Progress bridge ───────────────────────────────────────────
         def _progress(current: int, total: int) -> None:
-            pct_int  = int(current / total * 100)
-            pct_str  = f"{pct_int}%"
-            label    = f"Trial {current:,} of {total:,}"
-            set_progress((pct_int, pct_str, label, _RUNNING_STYLE, True, _RUN_BTN_DISABLED_STYLE))
+            pct_int = int(current / total * 100)
+            pct_str = f"{pct_int}%"
+            label = f"Trial {current:,} of {total:,}"
+            set_progress(
+                (pct_int, pct_str, label, _RUNNING_STYLE, True, _RUN_BTN_DISABLED_STYLE)
+            )
 
         # ── Intermediate results bridge ───────────────────────────────
         retire_yr = profile.retirement_year_self
 
         def _intermediate(partial_result: MonteCarloResult) -> None:
-            data = monte_carlo_result_to_dict(partial_result)
+            data = sanitize_for_dash_json(monte_carlo_result_to_dict(partial_result))
             data["_retire_yr"] = retire_yr
             _cache.set(_INTERMEDIATE_KEY, data)
             _cache.set(_INTERMEDIATE_READY_KEY, True)
@@ -138,7 +173,7 @@ def run_simulation(
             intermediate_interval=live_interval,
             adaptive_spending=adaptive,
         )
-        data = monte_carlo_result_to_dict(result)
+        data = sanitize_for_dash_json(monte_carlo_result_to_dict(result))
 
         # ── CRITICAL: Disable the live-interval BEFORE storing the final
         # result so no stale dash.Patch() can race with mc-results-area's
@@ -148,7 +183,7 @@ def run_simulation(
         _idle_progress(set_progress)
 
         pct_str = f"{result.success_rate * 100:.1f}%"
-        toast   = dbc.Toast(
+        toast = dbc.Toast(
             f"Completed {n_total:,} trials — Probability of Success: {pct_str}",
             header="Monte Carlo Complete ✅",
             icon="success",
@@ -159,6 +194,7 @@ def run_simulation(
 
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         _cache.delete(_INTERMEDIATE_KEY)
         _cache.set(_INTERMEDIATE_READY_KEY, False)
@@ -201,8 +237,8 @@ def register_monte_carlo_callbacks(app: dash.Dash) -> None:
         existing_mc = profile_data.get("monte_carlo", {})
 
         new_num_trials = int(num_trials_value)
-        new_adaptive   = bool(adaptive_spending_value and "on" in adaptive_spending_value)
-        new_live       = bool(live_updates_value and "on" in live_updates_value)
+        new_adaptive = bool(adaptive_spending_value and "on" in adaptive_spending_value)
+        new_live = bool(live_updates_value and "on" in live_updates_value)
 
         # Skip the write if nothing actually changed — prevents spurious
         # profile-store updates (and downstream React loops) at simulation end.
@@ -221,8 +257,6 @@ def register_monte_carlo_callbacks(app: dash.Dash) -> None:
         }
         return profile_data
 
-
-
     # NOTE: Live fan chart updates have been removed to avoid a React
     # "Maximum update depth exceeded" loop caused by the race between
     # live-update interval ticks and the final results callback replacing
@@ -238,13 +272,18 @@ def register_monte_carlo_callbacks(app: dash.Dash) -> None:
     def render_final_results(final_data, profile_data):
         if not final_data:
             from ui.pages.monte_carlo import _empty_state
+
             return _empty_state()
 
         from engine.models import PlanProfile
         from engine.monte_carlo import MonteCarloResult
         from ui.pages.monte_carlo import _results_section
 
-        profile = PlanProfile.from_dict(profile_data) if profile_data else PlanProfile.sample()
+        profile = (
+            PlanProfile.from_dict(profile_data)
+            if profile_data
+            else PlanProfile.sample()
+        )
         retire_yr = profile.retirement_year_self
 
         result = MonteCarloResult(**final_data)

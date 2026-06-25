@@ -16,6 +16,7 @@ from datetime import datetime
 
 from engine.models import PlanProfile
 from engine.projections import run_projection
+from ui.serialization import sanitize_for_dash_json
 
 APP_DATA_DIR = Path("data/profiles")
 DEFAULT_PLAN_FILE = APP_DATA_DIR / "my_plan.json"
@@ -130,7 +131,7 @@ def register_runner_callbacks(app: dash.Dash):
             )
 
             # Save the records back to the store and navigate to projections page
-            records = annual_df.to_dict("records")
+            records = sanitize_for_dash_json(annual_df.to_dict("records"))
             return records, "/projections", toast
 
         except Exception as e:

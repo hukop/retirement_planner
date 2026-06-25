@@ -10,6 +10,7 @@ import dash_bootstrap_components as dbc
 
 from engine.models import PlanProfile
 from engine.roth_conversion import RothConversionConfig, run_roth_conversion_analysis, roth_conversion_result_to_dict
+from ui.serialization import sanitize_for_dash_json
 
 def register_roth_conversion_callbacks(app: dash.Dash):
     
@@ -39,7 +40,7 @@ def register_roth_conversion_callbacks(app: dash.Dash):
             )
             
             result = run_roth_conversion_analysis(profile, config)
-            data = roth_conversion_result_to_dict(result)
+            data = sanitize_for_dash_json(roth_conversion_result_to_dict(result))
             
             if result.total_converted <= 0:
                 return dash.no_update, dbc.Toast(

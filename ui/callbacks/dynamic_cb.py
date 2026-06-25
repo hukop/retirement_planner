@@ -117,49 +117,16 @@ def register_dynamic_callbacks(app: dash.Dash):
 
     app.clientside_callback(
         """
-        function(density_drop, theme_drop, density_store, theme_store) {
-            const ctx = dash_clientside.callback_context;
-            const NO_UPDATE = window.dash_clientside.no_update;
-
-            // Determine effective values
-            let current_density = density_drop || density_store || "comfortable";
-            let current_theme   = theme_drop   || theme_store   || "classic";
-
-            if (ctx.triggered && ctx.triggered.length) {
-                const triggered_id = ctx.triggered[0].prop_id;
-                if      (triggered_id === 'layout-density-select.value') current_density = density_drop || "comfortable";
-                else if (triggered_id === 'density-store.data')          current_density = density_store || "comfortable";
-                else if (triggered_id === 'layout-theme-select.value')   current_theme   = theme_drop   || "classic";
-                else if (triggered_id === 'theme-store.data')            current_theme   = theme_store  || "classic";
-            }
-
-            const combined_class = "density-" + current_density + " theme-" + current_theme;
-
-            // Only push updates for values that actually changed — prevents React loop
-            const r_density_drop  = (density_drop  !== current_density) ? current_density : NO_UPDATE;
-            const r_density_store = (density_store !== current_density) ? current_density : NO_UPDATE;
-            const r_theme_drop    = (theme_drop    !== current_theme)   ? current_theme   : NO_UPDATE;
-            const r_theme_store   = (theme_store   !== current_theme)   ? current_theme   : NO_UPDATE;
-
-            // If nothing changed at all, skip re-rendering the shell too
-            if (r_density_drop === NO_UPDATE && r_density_store === NO_UPDATE &&
-                r_theme_drop   === NO_UPDATE && r_theme_store   === NO_UPDATE) {
-                return [NO_UPDATE, NO_UPDATE, NO_UPDATE, NO_UPDATE, NO_UPDATE];
-            }
-
-            return [r_density_drop, r_density_store, r_theme_drop, r_theme_store, combined_class];
+        function(density, theme) {
+            const current_density = density || "comfortable";
+            const current_theme = theme || "classic";
+            return "density-" + current_density + " theme-" + current_theme;
         }
         """,
-        Output("layout-density-select", "value"),
-        Output("density-store", "data"),
-        Output("layout-theme-select", "value"),
-        Output("theme-store", "data"),
         Output("app-shell", "className"),
         Input("layout-density-select", "value"),
         Input("layout-theme-select", "value"),
-        Input("density-store", "data"),
-        Input("theme-store", "data"),
-        prevent_initial_call=True
+        prevent_initial_call=False
     )
 
     # ── Real-time Header Sync ──

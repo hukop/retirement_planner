@@ -1122,19 +1122,26 @@ class ProjectionEngine:
 
         # Cashflow sanity check (should land near 0; allow rounding drift).
         # Identity:
-        #   income_total + withdrawals + employer_match
-        #   = expenses + taxes + employee_contributions + surplus_deposit
+        #   income_total + withdrawals
+        #   = expenses + taxes + employee_contributions + surplus_deposit + rmd_excess
         #
-        # contrib_total = employee_contrib + employer_match + surplus_deposit
-        # => contrib_employee + surplus_deposit = contrib_total - employer_match
+        # Employer match is an external contribution deposited directly to an
+        # account, so it is neither spendable income nor a cashflow use here.
+        # RMD excess is intentionally distributed above spending need and is
+        # therefore treated as an outflow/use for this audit.
+        employer_match = annual.get("contrib_employer_match", 0.0)
+        employee_contrib = annual.get(
+            "contrib_employee",
+            annual.get("contrib_total", 0.0) - employer_match,
+        )
         annual["cashflow_check"] = (
             annual["income_total"]
             + annual["withdrawal_total"]
-            + annual.get("contrib_employer_match", 0.0)
             - annual["expense_total"]
             - annual["tax_annual_est"]
-            - annual.get("contrib_employee", 0.0)
+            - employee_contrib
             - annual.get("contrib_surplus_deposit", 0.0)
+            - annual.get("rmd_excess", 0.0)
         ).round(2)
         annual["cashflow_check_ok"] = annual["cashflow_check"].abs() <= CASHFLOW_CHECK_TOLERANCE
 

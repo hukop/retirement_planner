@@ -166,6 +166,9 @@ def _sidebar() -> html.Div:
                                 {"label": "Dense View", "value": "dense"},
                             ],
                             value="comfortable",
+                            persistence=True,
+                            persistence_type="local",
+                            persisted_props=["value"],
                             size="sm",
                             style={"backgroundColor": "var(--bg-input)", "color": "var(--text-secondary)", "borderColor": "var(--border-input)", "fontSize": "12px", "padding": "4px 8px"}
                         ),
@@ -179,6 +182,9 @@ def _sidebar() -> html.Div:
                             {"label": "Notion (Minimalist)", "value": "notion"},
                         ],
                         value="classic",
+                        persistence=True,
+                        persistence_type="local",
+                        persisted_props=["value"],
                         size="sm",
                         style={"backgroundColor": "var(--bg-input)", "color": "var(--text-secondary)", "borderColor": "var(--border-input)", "fontSize": "12px", "padding": "4px 8px"}
                     ),

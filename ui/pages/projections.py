@@ -31,6 +31,7 @@ _COLORS = {
     "tax_deferred": "rgba(167,139,250,0.5)",   # Purple fill
     "tax_free":     "rgba(52,211,153,0.5)",    # Green fill
     "taxable":      "rgba(74,122,247,0.5)",    # Blue fill
+    "cash":         "rgba(148,163,184,0.45)",  # Slate fill
 
     # Flows
     "income":  "#34d399",   # Green
@@ -92,15 +93,28 @@ def _with_cashflow_check_columns(annual_df: pd.DataFrame) -> pd.DataFrame:
     df = annual_df.copy()
     required = {"income_total", "withdrawal_total", "expense_total", "tax_annual_est", "contrib_total"}
 
-    if "cashflow_check" not in df.columns and required.issubset(df.columns):
-        employer_match = df["contrib_employer_match"] if "contrib_employer_match" in df.columns else 0.0
+    if required.issubset(df.columns):
+        def optional_amount(column: str):
+            if column not in df.columns:
+                return 0.0
+            return pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+
+        employer_match = optional_amount("contrib_employer_match")
+        employee_contrib = (
+            optional_amount("contrib_employee")
+            if "contrib_employee" in df.columns
+            else optional_amount("contrib_total") - employer_match
+        )
+        surplus_deposit = optional_amount("contrib_surplus_deposit")
+        rmd_excess = optional_amount("rmd_excess")
         df["cashflow_check"] = (
             df["income_total"]
             + df["withdrawal_total"]
-            + employer_match
             - df["expense_total"]
             - df["tax_annual_est"]
-            - df["contrib_total"]
+            - employee_contrib
+            - surplus_deposit
+            - rmd_excess
         ).round(2)
 
     if "cashflow_check" in df.columns:
@@ -209,11 +223,22 @@ def _cashflow_check_panel(annual_df: pd.DataFrame) -> html.Div:
 def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int, profile: PlanProfile) -> go.Figure:
     fig = go.Figure()
     years = annual_df["year"]
+    plotted_total = pd.Series(0.0, index=annual_df.index)
+
+    def numeric_series(column: str) -> pd.Series:
+        return pd.to_numeric(annual_df[column], errors="coerce").fillna(0.0)
+
+    def sum_columns(columns: list[str]) -> pd.Series:
+        if not columns:
+            return pd.Series(0.0, index=annual_df.index)
+        return annual_df[columns].apply(pd.to_numeric, errors="coerce").fillna(0.0).sum(axis=1)
 
     # Bottom layer: Real Estate Equity
     if "equity_re_total" in annual_df:
+        y_re = numeric_series("equity_re_total")
+        plotted_total = plotted_total.add(y_re, fill_value=0.0)
         fig.add_trace(go.Scatter(
-            x=years, y=annual_df["equity_re_total"],
+            x=years, y=y_re,
             name="Real Estate Equity",
             mode="lines", fill="tozeroy",
             line=dict(width=0), fillcolor=_COLORS["re_equity"],
@@ -229,7 +254,8 @@ def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int, profile: PlanProf
     taxable  = [c for c in bal_cols if slug_tax_map.get(c) == "taxable"]
 
     if taxable:
-        y_taxable = annual_df[taxable].sum(axis=1)
+        y_taxable = sum_columns(taxable)
+        plotted_total = plotted_total.add(y_taxable, fill_value=0.0)
         fig.add_trace(go.Scatter(
             x=years, y=y_taxable, name="Taxable Accounts",
             mode="lines", fill="tonexty", line=dict(width=0),
@@ -237,7 +263,8 @@ def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int, profile: PlanProf
         ))
 
     if tax_def:
-        y_def = annual_df[tax_def].sum(axis=1)
+        y_def = sum_columns(tax_def)
+        plotted_total = plotted_total.add(y_def, fill_value=0.0)
         fig.add_trace(go.Scatter(
             x=years, y=y_def, name="Tax-Deferred (401k/Trad)",
             mode="lines", fill="tonexty", line=dict(width=0),
@@ -245,11 +272,24 @@ def _nw_details_chart(annual_df: pd.DataFrame, retire_yr: int, profile: PlanProf
         ))
 
     if tax_free:
-        y_free = annual_df[tax_free].sum(axis=1)
+        y_free = sum_columns(tax_free)
+        plotted_total = plotted_total.add(y_free, fill_value=0.0)
         fig.add_trace(go.Scatter(
             x=years, y=y_free, name="Tax-Free (Roth/HSA)",
             mode="lines", fill="tonexty", line=dict(width=0),
             fillcolor=_COLORS["tax_free"], stackgroup="nw"
+        ))
+
+    # If net worth includes a component not represented above (for example
+    # legacy/unmapped cash), plot the positive residual so the stack reaches
+    # the total line. Ignore penny-level rounding noise.
+    residual = (numeric_series("net_worth_eoy") - plotted_total).round(2)
+    y_cash_other = residual.where(residual > 1.0, 0.0)
+    if y_cash_other.gt(0).any():
+        fig.add_trace(go.Scatter(
+            x=years, y=y_cash_other, name="Cash / Other",
+            mode="lines", fill="tonexty", line=dict(width=0),
+            fillcolor=_COLORS["cash"], stackgroup="nw"
         ))
 
     # Total Line
