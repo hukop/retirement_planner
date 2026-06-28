@@ -87,6 +87,7 @@ def _idle_progress(set_progress):
     output=[
         Output("monte-carlo-store", "data"),
         Output("toast-container", "children", allow_duplicate=True),
+        Output("mc-live-interval", "disabled", allow_duplicate=True),
     ],
     inputs=dict(
         n_clicks=Input("btn-run-monte-carlo", "n_clicks"),
@@ -119,9 +120,6 @@ def run_simulation(
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
 
-    # ── Initial progress reset ────────────────────────────────────────
-    _reset_progress(set_progress)
-
     # Clear any stale intermediate data
     _cache.delete(_INTERMEDIATE_KEY)
     _cache.set(_INTERMEDIATE_READY_KEY, False)
@@ -142,6 +140,10 @@ def run_simulation(
 
         mc_config = profile.monte_carlo
         n_total = mc_config.num_trials
+        retire_yr = profile.retirement_year_self
+
+        # ── Initial progress reset ────────────────────────────────────────
+        _reset_progress(set_progress)
 
         # ── Progress bridge ───────────────────────────────────────────
         def _progress(current: int, total: int) -> None:
@@ -153,8 +155,6 @@ def run_simulation(
             )
 
         # ── Intermediate results bridge ───────────────────────────────
-        retire_yr = profile.retirement_year_self
-
         def _intermediate(partial_result: MonteCarloResult) -> None:
             data = sanitize_for_dash_json(monte_carlo_result_to_dict(partial_result))
             data["_retire_yr"] = retire_yr
@@ -190,7 +190,7 @@ def run_simulation(
             duration=5000,
             is_open=True,
         )
-        return data, toast
+        return data, toast, True
 
     except Exception as e:
         import traceback
@@ -209,10 +209,66 @@ def run_simulation(
             duration=7000,
             is_open=True,
         )
-        return dash.no_update, err_toast
+        return None, err_toast, True
 
 
 def register_monte_carlo_callbacks(app: dash.Dash) -> None:
+
+    # ── Initialize layout structure synchronously on run click ─────────────────
+    @app.callback(
+        Output("mc-results-area", "children"),
+        Output("mc-live-interval", "disabled"),
+        Input("btn-run-monte-carlo", "n_clicks"),
+        State("profile-store", "data"),
+        State("monte-carlo-store", "data"),
+        prevent_initial_call=True,
+    )
+    def initialize_simulation_layout(n_clicks, profile_data, mc_data):
+        if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+
+        from datetime import date
+        from engine.models import PlanProfile
+        from engine.monte_carlo import MonteCarloResult
+        from ui.pages.monte_carlo import _results_section
+
+        if mc_data:
+            # We already have a graph, no need to overwrite it with dummy data
+            return dash.no_update, False
+
+        profile = (
+            PlanProfile.from_dict(profile_data)
+            if profile_data
+            else PlanProfile.sample()
+        )
+        retire_yr = profile.retirement_year_self
+
+        start_year = date.today().year
+        plan_end_year = profile.plan_end_year
+        years = list(range(start_year, plan_end_year + 1))
+        num_years = len(years)
+        bal = profile.total_account_balance
+        percentiles = [[bal] * 7 for _ in range(num_years)]
+
+        dummy_result = MonteCarloResult(
+            num_trials=profile.monte_carlo.num_trials,
+            num_months=num_years * 12,
+            start_year=start_year,
+            years=years,
+            success_rate=1.0,
+            terminal_net_worths=[bal] * profile.monte_carlo.num_trials,
+            percentile_labels=[5, 10, 25, 50, 75, 90, 95],
+            net_worth_percentiles=percentiles,
+            median_trial_df=[],
+            worst_trial_df=[],
+            best_trial_df=[],
+            deterministic_df=[],
+            ruin_years=[],
+            num_trials_actual=profile.monte_carlo.num_trials,
+            mean_return_pct=0.0,
+            std_dev_pct=0.0,
+        )
+        return _results_section(dummy_result, retire_yr), False
 
     # Keep the MC tab's controls in the same profile store used by the rest of
     # the app, so navigating away and back preserves the choices.
@@ -257,12 +313,60 @@ def register_monte_carlo_callbacks(app: dash.Dash) -> None:
         }
         return profile_data
 
-    # NOTE: Live fan chart updates have been removed to avoid a React
-    # "Maximum update depth exceeded" loop caused by the race between
-    # live-update interval ticks and the final results callback replacing
-    # the entire mc-results-area (which includes a fresh mc-fan-chart).
-    # The progress bar already provides live feedback during simulation.
-    # ── 2. Render final results (full build with all charts) ─────────────
+    # ── 2. Live update: rebuild only the fan chart figure and KPI cards (no full page refresh) ──
+    @app.callback(
+        Output("mc-fan-chart", "figure"),
+        Output("mc-kpi-cards", "children"),
+        Input("mc-live-interval", "n_intervals"),
+        State("profile-store", "data"),
+        prevent_initial_call=True,
+    )
+    def live_update_fan_chart(n_intervals, profile_data):
+        ready = _cache.get(_INTERMEDIATE_READY_KEY, False)
+        if not ready:
+            raise dash.exceptions.PreventUpdate
+
+        data = _cache.get(_INTERMEDIATE_KEY)
+        if not data:
+            raise dash.exceptions.PreventUpdate
+
+        # Consume snapshot so next tick waits for fresh data
+        _cache.set(_INTERMEDIATE_READY_KEY, False)
+
+        from engine.monte_carlo import MonteCarloResult
+        from ui.pages.monte_carlo import _kpi_card_values, four_col
+
+        data.pop("_retire_yr", None)
+        result = MonteCarloResult(**data)
+
+        pcts = result.net_worth_percentiles
+        p5   = [row[0] for row in pcts]
+        p10  = [row[1] for row in pcts]
+        p50  = [row[3] for row in pcts]
+
+        patched_fig = dash.Patch()
+        
+        # Trace 0: 5th-10th %ile
+        patched_fig["data"][0]["y"] = p10 + p5[::-1]
+        
+        # Trace 1: 10th-50th %ile
+        patched_fig["data"][1]["y"] = p50 + p10[::-1]
+        
+        # Trace 2: 10th %ile line
+        patched_fig["data"][2]["y"] = p10
+        
+        # Trace 3: 5th %ile line
+        patched_fig["data"][3]["y"] = p5
+        
+        # Trace 4: Median line
+        patched_fig["data"][4]["y"] = p50
+
+        # KPI cards
+        kpi_cards = four_col(*_kpi_card_values(result))
+
+        return patched_fig, kpi_cards
+
+    # ── 3. Render final results (full build with all charts) ─────────────
     @app.callback(
         Output("mc-results-area", "children", allow_duplicate=True),
         Input("monte-carlo-store", "data"),

@@ -595,6 +595,7 @@ def layout(
     return html.Div(
         [
             control_panel,
+            dcc.Interval(id="mc-live-interval", interval=1500, disabled=True),
             html.Div(id="mc-results-area", children=results_content),
         ]
     )
