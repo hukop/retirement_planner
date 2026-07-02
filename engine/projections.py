@@ -600,8 +600,13 @@ class ProjectionEngine:
                     # taken via monthly withdrawals in months 1-11.
                     annual_need = max(0.0, yr_state.annual_net_need - yr_state.withdrawals_total)
                     owner_ages  = {"self": self_age_int, "spouse": spouse_age_int}
+                    owner_birth_years = {
+                        "self":   p.self_person.birth_year,
+                        "spouse": p.spouse.birth_year,
+                    }
                     wd_plan = execute_annual_withdrawals(
                         invest_portfolio, annual_need, owner_ages,
+                        owner_birth_years=owner_birth_years,
                         prior_balances=prior_balances,
                     )
                     if fast_path:

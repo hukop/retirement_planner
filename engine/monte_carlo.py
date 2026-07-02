@@ -60,7 +60,7 @@ import pandas as pd
 from engine.models import PlanProfile, MonteCarloConfig, ACCOUNT_TAX_TREATMENT
 from engine.projections import ProjectionEngine
 from engine.taxes import calculate_taxes
-from engine.withdrawal import RMD_ACCOUNT_TYPES, WITHDRAWAL_TIERS, distribution_period
+from engine.withdrawal import RMD_ACCOUNT_TYPES, WITHDRAWAL_TIERS, distribution_period, rmd_start_age
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +336,8 @@ class _FastMonteCarloContext:
     start_net_worth: float
     bootstrap_eff_rate: float
     det_annual_nw: dict[int, float]
+    self_birth_year: int
+    spouse_birth_year: int
 
 
 def _build_fast_context(
@@ -484,6 +486,8 @@ def _build_fast_context(
         start_net_worth=start_net_worth,
         bootstrap_eff_rate=float(bootstrap_eff_rate),
         det_annual_nw=det_annual_nw,
+        self_birth_year=profile.self_person.birth_year,
+        spouse_birth_year=profile.spouse.birth_year,
     )
 
 
@@ -578,8 +582,16 @@ def _execute_annual_withdrawals_fast(
             continue
 
         owner_code = int(context.owner_codes[idx])
-        age = self_age if owner_code == 0 else spouse_age if owner_code == 1 else 0
-        period = distribution_period(age)
+        if owner_code == 0:
+            age = self_age
+            birth_year = context.self_birth_year
+        elif owner_code == 1:
+            age = spouse_age
+            birth_year = context.spouse_birth_year
+        else:
+            continue
+
+        period = distribution_period(age, birth_year)
         if period is None:
             continue
 

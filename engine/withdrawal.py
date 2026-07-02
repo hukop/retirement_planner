@@ -6,7 +6,8 @@ Withdrawal Strategy
 Implements the standard tax-efficient sequential withdrawal order:
 
   1. Satisfy RMDs (Required Minimum Distributions) first — forced from all
-     tax-deferred accounts (401k, trad_ira) once the owner reaches age 73.
+     tax-deferred accounts (401k, trad_ira) once the owner reaches their
+     RMD start age (72, 73, or 75 depending on birth year — SECURE Act 2.0).
      RMD amounts are based on the IRS 2022 Uniform Lifetime Table.
 
   2. If the RMD amount already covers or exceeds the net withdrawal need,
@@ -31,9 +32,14 @@ The caller (projections.py) computes:
 Only the amount needed *after* income sources are subtracted is withdrawn.
 This module does not recalculate taxes — it accepts the pre-computed need.
 
-RMD Rules (IRS, 2023+)
------------------------
-- RMDs begin at age 73 (SECURE 2.0 Act, effective 2023).
+RMD Rules (SECURE Act 2.0 — staggered by birth year)
+-------------------------------------------------------
+The RMD starting age depends on the account owner's birth year:
+
+  Born 1950 or earlier : age 72  (pre-SECURE 2.0 / original SECURE Act)
+  Born 1951 – 1959     : age 73  (SECURE 2.0, effective 2023)
+  Born 1960 or later   : age 75  (SECURE 2.0, effective 2033)
+
 - Annual RMD = prior year-end balance / distribution_period (Uniform Lifetime Table).
 - Applies separately to each tax-deferred account.
 - Roth IRAs have no RMDs during the owner's lifetime.
@@ -42,6 +48,7 @@ RMD Rules (IRS, 2023+)
   and deposited into a taxable account (not re-contributed to retirement accounts).
 
 Reference: IRS Publication 590-B, Appendix B — Uniform Lifetime Table (2022+)
+SECURE 2.0 Act of 2022 (Pub. L. 117-328), §107 and §202
 """
 
 from __future__ import annotations
@@ -104,11 +111,28 @@ _UNIFORM_LIFETIME_TABLE: dict[int, float] = {
     115:  2.9,
 }
 
-RMD_START_AGE = 73   # SECURE 2.0 Act, effective 2023
-
 # Account types subject to RMDs
 RMD_ACCOUNT_TYPES = {"401k", "trad_ira"}
 # Note: roth_401k is exempt post-2024; roth_ira has never had RMDs.
+
+
+def rmd_start_age(birth_year: int) -> int:
+    """
+    Return the Required Minimum Distribution start age for an account owner
+    based on their birth year, per the SECURE Act 2.0 (Pub. L. 117-328).
+
+    Birth year  → RMD start age
+    -----------   -------------
+    ≤ 1950      → 72  (original SECURE Act / pre-SECURE 2.0)
+    1951–1959   → 73  (SECURE 2.0, effective 2023)
+    ≥ 1960      → 75  (SECURE 2.0, effective 2033)
+    """
+    if birth_year <= 1950:
+        return 72
+    elif birth_year <= 1959:
+        return 73
+    else:
+        return 75
 
 
 # ---------------------------------------------------------------------------
@@ -157,18 +181,24 @@ class AnnualWithdrawalPlan:
 # ---------------------------------------------------------------------------
 # RMD helpers
 # ---------------------------------------------------------------------------
-def distribution_period(age: int) -> float | None:
+def distribution_period(age: int, birth_year: int) -> float | None:
     """
     Return the IRS Uniform Lifetime Table distribution period for ``age``.
-    Returns None if age < RMD_START_AGE (no RMD required).
+    Returns None if age < rmd_start_age(birth_year) (no RMD required).
     For ages above 115, uses 2.9 (the table floor).
+
+    Parameters
+    ----------
+    age        : owner's age in the distribution year
+    birth_year : owner's birth year, used to determine the correct RMD
+                 start age per SECURE Act 2.0 (72 / 73 / 75).
     """
-    if age < RMD_START_AGE:
+    if age < rmd_start_age(birth_year):
         return None
     return _UNIFORM_LIFETIME_TABLE.get(age, 2.9)
 
 
-def annual_rmd(account_balance: float, age: int) -> float:
+def annual_rmd(account_balance: float, age: int, birth_year: int) -> float:
     """
     Compute the Required Minimum Distribution for a single tax-deferred account.
 
@@ -176,34 +206,41 @@ def annual_rmd(account_balance: float, age: int) -> float:
     ----------
     account_balance : prior year-end balance of the account
     age             : owner's age at the end of the distribution year
+    birth_year      : owner's birth year — determines the RMD start age
+                      per SECURE Act 2.0 (born ≤1950 → 72, 1951–1959 → 73,
+                      ≥1960 → 75).
 
     Returns
     -------
     Annual RMD amount in dollars, or 0.0 if no RMD is required.
     """
-    period = distribution_period(age)
+    period = distribution_period(age, birth_year)
     if period is None or account_balance <= 0:
         return 0.0
     return account_balance / period
 
 
 def compute_rmd_withdrawals(
-    portfolio:      list[AccountState],
-    owner_ages:     dict[str, int],    # {"self": 74, "spouse": 72}
-    prior_balances: dict[str, float] | None = None,
+    portfolio:        list[AccountState],
+    owner_ages:       dict[str, int],          # {"self": 74, "spouse": 72}
+    owner_birth_years: dict[str, int],         # {"self": 1958, "spouse": 1962}
+    prior_balances:   dict[str, float] | None = None,
 ) -> list[RMDResult]:
     """
     Compute and execute mandatory RMD withdrawals for all eligible accounts.
 
     Parameters
     ----------
-    portfolio      : list of AccountState objects
-    owner_ages     : mapping from owner key → age *in the projection year*
-    prior_balances : mapping from account *name* → balance at the prior
-                     year-end.  The IRS requires RMDs to be calculated from
-                     the December 31 balance of the *preceding* year.  If
-                     None (or the account name is missing from the dict),
-                     the current live balance is used as a fallback.
+    portfolio          : list of AccountState objects
+    owner_ages         : mapping from owner key → age *in the projection year*
+    owner_birth_years  : mapping from owner key → birth year, used to determine
+                         the correct RMD start age per SECURE Act 2.0
+                         (born ≤1950 → 72, 1951–1959 → 73, ≥1960 → 75).
+    prior_balances     : mapping from account *name* → balance at the prior
+                         year-end.  The IRS requires RMDs to be calculated from
+                         the December 31 balance of the *preceding* year.  If
+                         None (or the account name is missing from the dict),
+                         the current live balance is used as a fallback.
 
     Returns
     -------
@@ -216,8 +253,9 @@ def compute_rmd_withdrawals(
         if state.account_type not in RMD_ACCOUNT_TYPES:
             continue
 
-        owner = state.account.owner
-        age   = owner_ages.get(owner, 0)
+        owner      = state.account.owner
+        age        = owner_ages.get(owner, 0)
+        birth_year = owner_birth_years.get(owner, 1960)  # default: most restrictive start age
 
         # IRS rule: RMD = prior year-end balance / distribution period.
         # Fall back to live balance if prior_balances not supplied.
@@ -226,12 +264,12 @@ def compute_rmd_withdrawals(
             if prior_balances is not None
             else state.balance
         )
-        rmd = annual_rmd(balance_for_rmd, age)
+        rmd = annual_rmd(balance_for_rmd, age, birth_year)
 
         if rmd <= 0:
             continue
 
-        period = distribution_period(age)
+        period = distribution_period(age, birth_year)
         wr     = state.withdraw(rmd)
 
         results.append(RMDResult(
@@ -272,10 +310,11 @@ def _find_taxable_deposit_account(portfolio: list[AccountState]) -> AccountState
 # Main public API
 # ---------------------------------------------------------------------------
 def execute_annual_withdrawals(
-    portfolio:      list[AccountState],
-    net_need:       float,               # annual dollar need (after income sources)
-    owner_ages:     dict[str, int],      # e.g. {"self": 74, "spouse": 72}
-    prior_balances: dict[str, float] | None = None,
+    portfolio:         list[AccountState],
+    net_need:          float,                    # annual dollar need (after income sources)
+    owner_ages:        dict[str, int],           # e.g. {"self": 74, "spouse": 72}
+    owner_birth_years: dict[str, int],           # e.g. {"self": 1955, "spouse": 1962}
+    prior_balances:    dict[str, float] | None = None,
 ) -> AnnualWithdrawalPlan:
     """
     Execute the full annual withdrawal strategy for one projection year.
@@ -291,12 +330,15 @@ def execute_annual_withdrawals(
 
     Parameters
     ----------
-    portfolio      : list of AccountState (modified in place)
-    net_need       : annual net withdrawal needed (expenses − income sources)
-    owner_ages     : dict mapping owner key to integer age this year
-    prior_balances : dict mapping account *name* → December 31 balance of
-                     the *prior* year, used for IRS-correct RMD amounts.
-                     If None, the current live balance is used (less accurate).
+    portfolio          : list of AccountState (modified in place)
+    net_need           : annual net withdrawal needed (expenses − income sources)
+    owner_ages         : dict mapping owner key to integer age this year
+    owner_birth_years  : dict mapping owner key to birth year; used to determine
+                         each person's RMD start age per SECURE Act 2.0
+                         (born ≤1950 → 72, 1951–1959 → 73, ≥1960 → 75).
+    prior_balances     : dict mapping account *name* → December 31 balance of
+                         the *prior* year, used for IRS-correct RMD amounts.
+                         If None, the current live balance is used (less accurate).
 
     Returns
     -------
@@ -310,7 +352,7 @@ def execute_annual_withdrawals(
     shortfall          = 0.0
 
     # ── Step 1: RMDs ────────────────────────────────────────────────────
-    rmd_results   = compute_rmd_withdrawals(portfolio, owner_ages, prior_balances)
+    rmd_results   = compute_rmd_withdrawals(portfolio, owner_ages, owner_birth_years, prior_balances)
     total_rmd     = sum(r.actual_withdrawn for r in rmd_results)
     rmd_withdrawals = [r.withdrawal for r in rmd_results]
     all_withdrawals.extend(rmd_withdrawals)
@@ -368,11 +410,12 @@ def execute_annual_withdrawals(
 # Monthly wrapper (for projection engine's monthly loop)
 # ---------------------------------------------------------------------------
 def execute_monthly_withdrawals(
-    portfolio:      list[AccountState],
-    monthly_need:   float,
-    owner_ages:     dict[str, int],
-    month_of_year:  int,             # 1–12: RMDs are only forced in December (month 12)
-    prior_balances: dict[str, float] | None = None,
+    portfolio:         list[AccountState],
+    monthly_need:      float,
+    owner_ages:        dict[str, int],
+    owner_birth_years: dict[str, int],           # {"self": 1955, "spouse": 1962}
+    month_of_year:     int,                      # 1–12: RMDs are only forced in December (month 12)
+    prior_balances:    dict[str, float] | None = None,
 ) -> AnnualWithdrawalPlan:
     """
     Monthly withdrawal wrapper — alternative entry point for callers that
@@ -395,6 +438,7 @@ def execute_monthly_withdrawals(
             portfolio=portfolio,
             net_need=monthly_need * 12,
             owner_ages=owner_ages,
+            owner_birth_years=owner_birth_years,
             prior_balances=prior_balances,
         )
     else:

@@ -609,19 +609,23 @@ class TestAccountState(unittest.TestCase):
 
 class TestRMDHelpers(unittest.TestCase):
     def test_distribution_period_before_age(self):
-        self.assertIsNone(distribution_period(72))
+        # Born 1950 → RMD starts at 72; age 71 should return None
+        self.assertIsNone(distribution_period(71, birth_year=1950))
 
     def test_distribution_period_73(self):
-        self.assertEqual(distribution_period(73), 26.5)
+        # Born 1951–1959 → RMD starts at 73; age 73 uses table
+        self.assertEqual(distribution_period(73, birth_year=1955), 26.5)
 
     def test_distribution_period_100(self):
-        self.assertEqual(distribution_period(100), 6.4)
+        self.assertEqual(distribution_period(100, birth_year=1955), 6.4)
 
     def test_annual_rmd_before_start_age(self):
-        self.assertEqual(annual_rmd(1_000_000, 70), 0.0)
+        # Born ≥1960 → RMD starts at 75; age 70 should give 0
+        self.assertEqual(annual_rmd(1_000_000, 70, birth_year=1965), 0.0)
 
     def test_annual_rmd_typical(self):
-        rmd = annual_rmd(265_000, 73)
+        # Born 1951–1959 → RMD starts at 73
+        rmd = annual_rmd(265_000, 73, birth_year=1955)
         self.assertEqual(rmd, 265_000 / 26.5)
 
 
@@ -645,7 +649,10 @@ class TestExecuteAnnualWithdrawals(unittest.TestCase):
             InvestmentAccount(account_type="401k", balance=10_000),
         ]
         portfolio = build_portfolio(accounts)
-        plan = execute_annual_withdrawals(portfolio, net_need=5_000, owner_ages={"self": 50})
+        plan = execute_annual_withdrawals(
+            portfolio, net_need=5_000, owner_ages={"self": 50},
+            owner_birth_years={"self": 1975},
+        )
         self.assertEqual(plan.shortfall, 0)
         self.assertEqual(plan.total_withdrawn, 5_000)
         # Should have drawn from brokerage first
@@ -657,7 +664,10 @@ class TestExecuteAnnualWithdrawals(unittest.TestCase):
             InvestmentAccount(account_type="brokerage", balance=1_000),
         ]
         portfolio = build_portfolio(accounts)
-        plan = execute_annual_withdrawals(portfolio, net_need=5_000, owner_ages={"self": 50})
+        plan = execute_annual_withdrawals(
+            portfolio, net_need=5_000, owner_ages={"self": 50},
+            owner_birth_years={"self": 1975},
+        )
         self.assertEqual(plan.shortfall, 4_000)
 
     def test_rmd_forces_withdrawal(self):
@@ -665,7 +675,10 @@ class TestExecuteAnnualWithdrawals(unittest.TestCase):
             InvestmentAccount(account_type="401k", balance=100_000),
         ]
         portfolio = build_portfolio(accounts)
-        plan = execute_annual_withdrawals(portfolio, net_need=0, owner_ages={"self": 73})
+        plan = execute_annual_withdrawals(
+            portfolio, net_need=0, owner_ages={"self": 73},
+            owner_birth_years={"self": 1955},  # born 1951–1959 → RMD at 73
+        )
         self.assertGreater(plan.total_rmd, 0)
         # RMD is forced even if net_need is zero
 
@@ -675,7 +688,10 @@ class TestExecuteAnnualWithdrawals(unittest.TestCase):
             InvestmentAccount(account_type="brokerage", balance=5_000),
         ]
         portfolio = build_portfolio(accounts)
-        plan = execute_annual_withdrawals(portfolio, net_need=0, owner_ages={"self": 73})
+        plan = execute_annual_withdrawals(
+            portfolio, net_need=0, owner_ages={"self": 73},
+            owner_birth_years={"self": 1955},  # born 1951–1959 → RMD at 73
+        )
         if plan.rmd_excess > 0:
             brokerage = [s for s in portfolio if s.account_type == "brokerage"][0]
             self.assertGreater(brokerage.balance, 5_000)
@@ -700,6 +716,7 @@ class TestExecuteAnnualWithdrawals(unittest.TestCase):
 
         plan_with_prior = execute_annual_withdrawals(
             portfolio, net_need=0, owner_ages={"self": 73},
+            owner_birth_years={"self": 1955},
             prior_balances=prior_balances,
         )
 
@@ -713,6 +730,7 @@ class TestExecuteAnnualWithdrawals(unittest.TestCase):
         portfolio2[0].balance = starting_balance * 1.50
         plan_without_prior = execute_annual_withdrawals(
             portfolio2, net_need=0, owner_ages={"self": 73},
+            owner_birth_years={"self": 1955},
         )
         # Live-balance RMD should be larger
         self.assertGreater(plan_without_prior.total_rmd, plan_with_prior.total_rmd)
